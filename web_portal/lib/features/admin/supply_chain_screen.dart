@@ -25,6 +25,37 @@ final supplyChainProvider = FutureProvider.autoDispose<SupplyChainData>((ref) as
 class SupplyChainScreen extends ConsumerWidget {
   const SupplyChainScreen({super.key});
 
+  void _showDetailsDialog(BuildContext context, String title, List<String> items) {
+    showDialog(
+      context: context,
+      builder: (context) {
+        return AlertDialog(
+          title: Text(title),
+          content: SizedBox(
+            width: double.maxFinite,
+            child: items.isEmpty 
+              ? const Text('No details available.') 
+              : ListView.builder(
+                  shrinkWrap: true,
+                  itemCount: items.length,
+                  itemBuilder: (context, index) {
+                    return ListTile(
+                      title: Text(items[index]),
+                    );
+                  },
+                ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(),
+              child: const Text('Close'),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final dataAsync = ref.watch(supplyChainProvider);
@@ -47,11 +78,22 @@ class SupplyChainScreen extends ConsumerWidget {
                 // KPI Cards
                 Row(
                   children: [
-                    _buildKpiCard(context, 'Total Channels', '${data.marketChannels.length}', Icons.storefront, const Color(0xFF2E7D32)),
+                    _buildKpiCard(context, 'Total Channels', '${data.marketChannels.length}', Icons.storefront, const Color(0xFF2E7D32), onTap: () {
+                      final items = data.marketChannels.map((e) => '${e['name']} (${e['type']})').toList();
+                      _showDetailsDialog(context, 'Market Channels', items);
+                    }),
                     const SizedBox(width: 16),
-                    _buildKpiCard(context, 'Total Cooperatives', '${data.cooperatives.length}', Icons.groups, const Color(0xFF4CAF50)),
+                    _buildKpiCard(context, 'Total Cooperatives', '${data.cooperatives.length}', Icons.groups, const Color(0xFF4CAF50), onTap: () {
+                      final items = data.cooperatives.map((e) => '${e['name']} (${e['location']})').toList();
+                      _showDetailsDialog(context, 'Cooperatives', items);
+                    }),
                     const SizedBox(width: 16),
-                    _buildKpiCard(context, 'Market Saturation Index', '85% (High)', Icons.warning_amber, Colors.orange),
+                    _buildKpiCard(context, 'Market Saturation Index', '85% (High)', Icons.warning_amber, Colors.orange, onTap: () {
+                      _showDetailsDialog(context, 'Market Saturation Index', [
+                        'Currently High due to oversupply of tomatoes and bitter gourd in top barangays.',
+                        'Consider alternative markets.'
+                      ]);
+                    }),
                   ],
                 ),
                 const SizedBox(height: 32),
@@ -158,32 +200,38 @@ class SupplyChainScreen extends ConsumerWidget {
     );
   }
 
-  Widget _buildKpiCard(BuildContext context, String title, String value, IconData icon, Color color) {
+  Widget _buildKpiCard(BuildContext context, String title, String value, IconData icon, Color color, {VoidCallback? onTap}) {
     return Expanded(
-      child: Container(
-        decoration: BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.circular(12),
-          boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.04), blurRadius: 10, offset: const Offset(0, 4))],
-        ),
-        padding: const EdgeInsets.all(24.0),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
+      child: GestureDetector(
+        onTap: onTap,
+        child: MouseRegion(
+          cursor: onTap != null ? SystemMouseCursors.click : SystemMouseCursors.basic,
+          child: Container(
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(12),
+              boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.04), blurRadius: 10, offset: const Offset(0, 4))],
+            ),
+            padding: const EdgeInsets.all(24.0),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Container(
-                  padding: const EdgeInsets.all(10),
-                  decoration: BoxDecoration(color: color.withOpacity(0.1), borderRadius: BorderRadius.circular(8)),
-                  child: Icon(icon, color: color, size: 24),
+                Row(
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.all(10),
+                      decoration: BoxDecoration(color: color.withOpacity(0.1), borderRadius: BorderRadius.circular(8)),
+                      child: Icon(icon, color: color, size: 24),
+                    ),
+                    const SizedBox(width: 16),
+                    Expanded(child: Text(title, style: const TextStyle(fontSize: 14, color: Color(0xFF666666)))),
+                  ],
                 ),
-                const SizedBox(width: 16),
-                Expanded(child: Text(title, style: const TextStyle(fontSize: 14, color: Color(0xFF666666)))),
+                const SizedBox(height: 20),
+                Text(value, style: TextStyle(fontSize: 28, fontWeight: FontWeight.bold, color: color == Colors.orange ? Colors.orange.shade700 : const Color(0xFF1E392A))),
               ],
             ),
-            const SizedBox(height: 20),
-            Text(value, style: TextStyle(fontSize: 28, fontWeight: FontWeight.bold, color: color == Colors.orange ? Colors.orange.shade700 : const Color(0xFF1E392A))),
-          ],
+          ),
         ),
       ),
     );

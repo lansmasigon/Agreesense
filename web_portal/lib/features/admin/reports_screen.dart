@@ -69,6 +69,37 @@ final reportsProvider = FutureProvider.autoDispose<ReportsData>((ref) async {
 class ReportsScreen extends ConsumerWidget {
   const ReportsScreen({super.key});
 
+  void _showDetailsDialog(BuildContext context, String title, List<String> items) {
+    showDialog(
+      context: context,
+      builder: (context) {
+        return AlertDialog(
+          title: Text(title),
+          content: SizedBox(
+            width: double.maxFinite,
+            child: items.isEmpty 
+              ? const Text('No details available.') 
+              : ListView.builder(
+                  shrinkWrap: true,
+                  itemCount: items.length,
+                  itemBuilder: (context, index) {
+                    return ListTile(
+                      title: Text(items[index]),
+                    );
+                  },
+                ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(),
+              child: const Text('Close'),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final reportsAsync = ref.watch(reportsProvider);
@@ -110,11 +141,25 @@ class ReportsScreen extends ConsumerWidget {
                   spacing: 16,
                   runSpacing: 16,
                   children: [
-                    _buildSummaryCard(context, 'Rice (Q3)', '45,000 MT', Icons.trending_up, const Color(0xFF2E7D32), 'Production Forecast'),
-                    _buildSummaryCard(context, 'Corn (Q3)', '22,000 MT', Icons.trending_flat, const Color(0xFF4CAF50), 'Production Forecast'),
-                    _buildSummaryCard(context, 'Total Area', '${data.totalArea.toStringAsFixed(1)} ha', Icons.map, const Color(0xFF388E3C), 'Validated Area'),
-                    _buildSummaryCard(context, 'Pending Validation', '${data.pendingArea.toStringAsFixed(1)} ha', Icons.pending_actions, const Color(0xFF81C784), 'Validated Area'),
-                    _buildRollupCard(context),
+                    _buildSummaryCard(context, 'Rice (Q3)', '45,000 MT', Icons.trending_up, const Color(0xFF2E7D32), 'Production Forecast', onTap: () {
+                      _showDetailsDialog(context, 'Rice (Q3) Forecast', ['Based on 9,000 ha of validated area.', 'Expected yield: 5 MT/ha.']);
+                    }),
+                    _buildSummaryCard(context, 'Corn (Q3)', '22,000 MT', Icons.trending_flat, const Color(0xFF4CAF50), 'Production Forecast', onTap: () {
+                      _showDetailsDialog(context, 'Corn (Q3) Forecast', ['Based on 5,500 ha of validated area.', 'Expected yield: 4 MT/ha.']);
+                    }),
+                    _buildSummaryCard(context, 'Total Area', '${data.totalArea.toStringAsFixed(1)} ha', Icons.map, const Color(0xFF388E3C), 'Validated Area', onTap: () {
+                      final items = data.cropDistribution.entries.map((e) => '${e.key}: ${e.value.toStringAsFixed(1)} ha').toList();
+                      _showDetailsDialog(context, 'Total Validated Area', items);
+                    }),
+                    _buildSummaryCard(context, 'Pending Validation', '${data.pendingArea.toStringAsFixed(1)} ha', Icons.pending_actions, const Color(0xFF81C784), 'Validated Area', onTap: () {
+                      _showDetailsDialog(context, 'Pending Validation Area', ['Total pending area: ${data.pendingArea.toStringAsFixed(1)} ha across all barangays.']);
+                    }),
+                    _buildRollupCard(context, onTap: () {
+                      _showDetailsDialog(context, 'P&L Roll-ups', [
+                        'Rice projected revenue: ₱ 900M',
+                        'Corn projected revenue: ₱ 300M'
+                      ]);
+                    }),
                   ],
                 ),
                 const SizedBox(height: 32),
@@ -307,70 +352,82 @@ class ReportsScreen extends ConsumerWidget {
     );
   }
 
-  Widget _buildSummaryCard(BuildContext context, String title, String value, IconData icon, Color color, String subtitle) {
-    return Container(
-      width: _getCardWidth(context),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(16),
-        boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.02), blurRadius: 20, offset: const Offset(0, 8))],
-        border: Border.all(color: Colors.grey.withOpacity(0.08)),
-      ),
-      padding: const EdgeInsets.all(24.0),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Row(
+  Widget _buildSummaryCard(BuildContext context, String title, String value, IconData icon, Color color, String subtitle, {VoidCallback? onTap}) {
+    return GestureDetector(
+      onTap: onTap,
+      child: MouseRegion(
+        cursor: onTap != null ? SystemMouseCursors.click : SystemMouseCursors.basic,
+        child: Container(
+          width: _getCardWidth(context),
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(16),
+            boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.02), blurRadius: 20, offset: const Offset(0, 8))],
+            border: Border.all(color: Colors.grey.withOpacity(0.08)),
+          ),
+          padding: const EdgeInsets.all(24.0),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              Container(
-                padding: const EdgeInsets.all(10),
-                decoration: BoxDecoration(color: color.withOpacity(0.1), borderRadius: BorderRadius.circular(12)),
-                child: Icon(icon, size: 24, color: color),
+              Row(
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(10),
+                    decoration: BoxDecoration(color: color.withOpacity(0.1), borderRadius: BorderRadius.circular(12)),
+                    child: Icon(icon, size: 24, color: color),
+                  ),
+                  const SizedBox(width: 16),
+                  Expanded(child: Text(subtitle, style: const TextStyle(fontSize: 13, color: Color(0xFF64748B), fontWeight: FontWeight.w600))),
+                ],
               ),
-              const SizedBox(width: 16),
-              Expanded(child: Text(subtitle, style: const TextStyle(fontSize: 13, color: Color(0xFF64748B), fontWeight: FontWeight.w600))),
+              const SizedBox(height: 20),
+              Text(title, style: const TextStyle(fontSize: 14, color: Color(0xFF94A3B8), fontWeight: FontWeight.w500)),
+              const SizedBox(height: 4),
+              Text(value, style: const TextStyle(fontSize: 28, fontWeight: FontWeight.bold, color: Color(0xFF1E293B))),
             ],
           ),
-          const SizedBox(height: 20),
-          Text(title, style: const TextStyle(fontSize: 14, color: Color(0xFF94A3B8), fontWeight: FontWeight.w500)),
-          const SizedBox(height: 4),
-          Text(value, style: const TextStyle(fontSize: 28, fontWeight: FontWeight.bold, color: Color(0xFF1E293B))),
-        ],
+        ),
       ),
     );
   }
   
-  Widget _buildRollupCard(BuildContext context) {
-    return Container(
-      width: _getCardWidth(context),
-      decoration: BoxDecoration(
-        color: const Color(0xFFF0FDF4),
-        borderRadius: BorderRadius.circular(16),
-        boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.02), blurRadius: 20, offset: const Offset(0, 8))],
-        border: Border.all(color: const Color(0xFFBBF7D0).withOpacity(0.5)),
-      ),
-      padding: const EdgeInsets.all(24.0),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Row(
+  Widget _buildRollupCard(BuildContext context, {VoidCallback? onTap}) {
+    return GestureDetector(
+      onTap: onTap,
+      child: MouseRegion(
+        cursor: onTap != null ? SystemMouseCursors.click : SystemMouseCursors.basic,
+        child: Container(
+          width: _getCardWidth(context),
+          decoration: BoxDecoration(
+            color: const Color(0xFFF0FDF4),
+            borderRadius: BorderRadius.circular(16),
+            boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.02), blurRadius: 20, offset: const Offset(0, 8))],
+            border: Border.all(color: const Color(0xFFBBF7D0).withOpacity(0.5)),
+          ),
+          padding: const EdgeInsets.all(24.0),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              Container(
-                padding: const EdgeInsets.all(10),
-                decoration: BoxDecoration(color: const Color(0xFF4CAF50).withOpacity(0.2), borderRadius: BorderRadius.circular(12)),
-                child: const Icon(Icons.attach_money, size: 24, color: Color(0xFF15803D)),
+              Row(
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(10),
+                    decoration: BoxDecoration(color: const Color(0xFF4CAF50).withOpacity(0.2), borderRadius: BorderRadius.circular(12)),
+                    child: const Icon(Icons.attach_money, size: 24, color: Color(0xFF15803D)),
+                  ),
+                  const SizedBox(width: 16),
+                  const Expanded(child: Text('P&L Roll-ups', style: TextStyle(fontSize: 13, color: Color(0xFF15803D), fontWeight: FontWeight.w700))),
+                ],
               ),
-              const SizedBox(width: 16),
-              const Expanded(child: Text('P&L Roll-ups', style: TextStyle(fontSize: 13, color: Color(0xFF15803D), fontWeight: FontWeight.w700))),
+              const SizedBox(height: 20),
+              const Text('Projected Rev.', style: TextStyle(fontSize: 14, color: Color(0xFF166534), fontWeight: FontWeight.w500)),
+              const SizedBox(height: 4),
+              const Text('₱ 1.2B', style: TextStyle(fontSize: 28, fontWeight: FontWeight.bold, color: Color(0xFF14532D))),
             ],
           ),
-          const SizedBox(height: 20),
-          const Text('Projected Rev.', style: TextStyle(fontSize: 14, color: Color(0xFF166534), fontWeight: FontWeight.w500)),
-          const SizedBox(height: 4),
-          const Text('₱ 1.2B', style: TextStyle(fontSize: 28, fontWeight: FontWeight.bold, color: Color(0xFF14532D))),
-        ],
+        ),
       ),
     );
   }
