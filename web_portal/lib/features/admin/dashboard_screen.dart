@@ -8,9 +8,12 @@ class DashboardStats {
   final int pendingValidation;
   final double validatedArea;
   final int totalFarmers;
-  final int oversupplyCrops;
+  final List<String> oversupplyCrops;
   final List<BarangayStats> barangayStats;
   final List<RecentActivity> recentActivities;
+  final List<String> pendingValidationList;
+  final List<String> farmersList;
+  final Map<String, double> validatedAreaByBarangay;
 
   DashboardStats({
     required this.pendingValidation,
@@ -19,6 +22,9 @@ class DashboardStats {
     required this.oversupplyCrops,
     required this.barangayStats,
     required this.recentActivities,
+    required this.pendingValidationList,
+    required this.farmersList,
+    required this.validatedAreaByBarangay,
   });
 }
 
@@ -46,32 +52,51 @@ class RecentActivity {
 final dashboardStatsProvider = FutureProvider.autoDispose<DashboardStats>((ref) async {
   final supabase = ref.watch(supabaseClientProvider);
 
+  String formatCropId(String id) {
+    if (id.isEmpty) return id;
+    return id[0].toUpperCase() + id.substring(1).replaceAll('_', ' ');
+  }
+
   // 1. Pending validation
   final pendingRes = await supabase
       .from('crop_declarations')
-      .select('id')
+      .select('id, crop_id, profiles(full_name)')
       .eq('status', 'pending');
   final pendingCount = (pendingRes as List).length;
+  final List<String> pendingList = (pendingRes).map((e) {
+    final farmerName = e['profiles']?['full_name'] ?? 'Unknown';
+    final crop = formatCropId(e['crop_id'] as String? ?? '');
+    return '$farmerName - $crop';
+  }).toList();
 
   // 2. Validated area (e.g. 'approved')
   final areaRes = await supabase
       .from('crop_declarations')
-      .select('area_ha')
+      .select('area_ha, barangay')
       .eq('status', 'approved');
   double validatedArea = 0;
+  final Map<String, double> brgyAreaMap = {};
   for (var row in areaRes as List) {
-    validatedArea += (row['area_ha'] as num).toDouble();
+    final area = (row['area_ha'] as num).toDouble();
+    final brgy = row['barangay'] as String? ?? 'Unknown';
+    validatedArea += area;
+    brgyAreaMap[brgy] = (brgyAreaMap[brgy] ?? 0) + area;
   }
 
   // 3. Total farmers
   final farmersRes = await supabase
       .from('profiles')
-      .select('id')
+      .select('full_name, barangay')
       .eq('role', 'farmer');
   final totalFarmers = (farmersRes as List).length;
+  final List<String> farmersList = (farmersRes).map((e) {
+    final name = e['full_name'] ?? 'Unknown';
+    final brgy = e['barangay'] ?? 'Unknown';
+    return '$name ($brgy)';
+  }).toList();
 
   // 4. Oversupply crops (dummy for now)
-  final oversupplyCrops = 3; 
+  final oversupplyCrops = ['Bitter Gourd', 'Tomato', 'Eggplant'];
 
   // 5. Barangay stats
   final brgyRes = await supabase
@@ -82,11 +107,6 @@ final dashboardStatsProvider = FutureProvider.autoDispose<DashboardStats>((ref) 
   final Map<String, Set<String>> brgyFarmers = {};
   final Map<String, double> brgyArea = {};
   final Map<String, Map<String, int>> brgyCropsCount = {};
-
-  String formatCropId(String id) {
-    if (id.isEmpty) return id;
-    return id[0].toUpperCase() + id.substring(1).replaceAll('_', ' ');
-  }
 
   for (var row in brgyRes as List) {
     final brgy = row['barangay'] as String? ?? 'Unknown';
@@ -154,6 +174,9 @@ final dashboardStatsProvider = FutureProvider.autoDispose<DashboardStats>((ref) 
     oversupplyCrops: oversupplyCrops,
     barangayStats: barangayStats,
     recentActivities: recentActivities,
+    pendingValidationList: pendingList,
+    farmersList: farmersList,
+    validatedAreaByBarangay: brgyAreaMap,
   );
 });
 
@@ -190,13 +213,22 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
             // KPI Grid
             Row(
               children: [
-                Expanded(child: _buildKpiCard('Pending validation', '${stats.pendingValidation}', const Color(0xFFF59E0B), 'Current queue')),
+                Expanded(child: _buildKpiCard('Pending validation', '${stats.pendingValidation}', const Color(0xFFF59E0B), 'Current queue', onTap: () {
+                  _showDetailsDialog('Pending Validations', stats.pendingValidationList);
+                })),
                 const SizedBox(width: 16),
-                Expanded(child: _buildKpiCard('Validated area', '${stats.validatedArea.toStringAsFixed(1)} ha', const Color(0xFF3B82F6), 'Total approved')),
+                Expanded(child: _buildKpiCard('Validated area', '${stats.validatedArea.toStringAsFixed(1)} ha', const Color(0xFF3B82F6), 'Total approved', onTap: () {
+                  final list = stats.validatedAreaByBarangay.entries.map((e) => '${e.key}: ${e.value.toStringAsFixed(1)} ha').toList();
+                  _showDetailsDialog('Validated Area by Barangay', list);
+                })),
                 const SizedBox(width: 16),
-                Expanded(child: _buildKpiCard('Total farmers', '${stats.totalFarmers}', const Color(0xFF1E293B), 'Registered users')),
+                Expanded(child: _buildKpiCard('Total farmers', '${stats.totalFarmers}', const Color(0xFF1E293B), 'Registered users', onTap: () {
+                  _showDetailsDialog('Registered Farmers', stats.farmersList);
+                })),
                 const SizedBox(width: 16),
-                Expanded(child: _buildKpiCard('Oversupply crops', '${stats.oversupplyCrops}', const Color(0xFFEF4444), 'Bitter gourd, etc.')),
+                Expanded(child: _buildKpiCard('Oversupply crops', '${stats.oversupplyCrops.length}', const Color(0xFFEF4444), 'Bitter gourd, etc.', onTap: () {
+                  _showDetailsDialog('Oversupply Crops', stats.oversupplyCrops);
+                })),
               ],
             ),
             const SizedBox(height: 24),
@@ -434,25 +466,62 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
     );
   }
 
-  Widget _buildKpiCard(String label, String value, Color valueColor, String sub) {
-    return Container(
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(12),
-        boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.03), blurRadius: 20, offset: const Offset(0, 4))],
-        border: Border.all(color: Colors.grey.withOpacity(0.08)),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Text(label.toUpperCase(), style: const TextStyle(fontSize: 10, color: Color(0xFF64748B), fontWeight: FontWeight.w600), maxLines: 1, overflow: TextOverflow.ellipsis),
-          const SizedBox(height: 8),
-          Text(value, style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: valueColor), maxLines: 1, overflow: TextOverflow.ellipsis),
-          const SizedBox(height: 4),
-          Text(sub, style: const TextStyle(fontSize: 11, color: Color(0xFF94A3B8), fontWeight: FontWeight.w500), maxLines: 1, overflow: TextOverflow.ellipsis),
-        ],
+  void _showDetailsDialog(String title, List<String> items) {
+    showDialog(
+      context: context,
+      builder: (context) {
+        return AlertDialog(
+          title: Text(title),
+          content: SizedBox(
+            width: double.maxFinite,
+            child: items.isEmpty 
+              ? const Text('No details available.') 
+              : ListView.builder(
+                  shrinkWrap: true,
+                  itemCount: items.length,
+                  itemBuilder: (context, index) {
+                    return ListTile(
+                      title: Text(items[index]),
+                    );
+                  },
+                ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(),
+              child: const Text('Close'),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  Widget _buildKpiCard(String label, String value, Color valueColor, String sub, {VoidCallback? onTap}) {
+    return GestureDetector(
+      onTap: onTap,
+      child: MouseRegion(
+        cursor: onTap != null ? SystemMouseCursors.click : SystemMouseCursors.basic,
+        child: Container(
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(12),
+            boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.03), blurRadius: 20, offset: const Offset(0, 4))],
+            border: Border.all(color: Colors.grey.withOpacity(0.08)),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Text(label.toUpperCase(), style: const TextStyle(fontSize: 10, color: Color(0xFF64748B), fontWeight: FontWeight.w600), maxLines: 1, overflow: TextOverflow.ellipsis),
+              const SizedBox(height: 8),
+              Text(value, style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: valueColor), maxLines: 1, overflow: TextOverflow.ellipsis),
+              const SizedBox(height: 4),
+              Text(sub, style: const TextStyle(fontSize: 11, color: Color(0xFF94A3B8), fontWeight: FontWeight.w500), maxLines: 1, overflow: TextOverflow.ellipsis),
+            ],
+          ),
+        ),
       ),
     );
   }

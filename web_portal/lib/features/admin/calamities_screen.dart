@@ -154,9 +154,10 @@ class _CalamitiesScreenState extends ConsumerState<CalamitiesScreen> {
       builder: (context) {
         return StatefulBuilder(
           builder: (context, setStateDialog) {
-            final lossPercent = (report['loss_percent'] as num?)?.toDouble() ?? 0.0;
+            final rawLoss = (report['loss_percent'] as num?)?.toDouble() ?? 0.0;
+            final lossFactor = rawLoss > 1.0 ? rawLoss / 100.0 : rawLoss;
             final affectedArea = (report['affected_area_ha'] as num?)?.toDouble() ?? 0.0;
-            double estimatedSubsidy = lossPercent * affectedArea * _calibratedValuePerHectare;
+            double estimatedSubsidy = lossFactor * affectedArea * _calibratedValuePerHectare;
             
             final farmerName = report['profiles']?['full_name'] ?? 'Unknown Farmer';
             final cropName = _formatCropId(report['crop_id']);
@@ -177,7 +178,7 @@ class _CalamitiesScreenState extends ConsumerState<CalamitiesScreen> {
                     Text('Date: $dateStr'),
                     const SizedBox(height: 16),
                     Text('Affected Area: $affectedArea ha'),
-                    Text('Loss Percentage: ${(lossPercent * 100).toStringAsFixed(0)}%'),
+                    Text('Loss Percentage: ${(lossFactor * 100).toStringAsFixed(0)}%'),
                     const SizedBox(height: 16),
                     Text(
                       'Estimated Subsidy: PHP ${estimatedSubsidy.toStringAsFixed(2)}',
@@ -267,9 +268,10 @@ class _CalamitiesScreenState extends ConsumerState<CalamitiesScreen> {
     Map<String, double> lossByType = {};
     for (var report in reports) {
       final type = report['type'] as String? ?? 'Unknown';
-      final lossPercent = (report['loss_percent'] as num?)?.toDouble() ?? 0.0;
+      final rawLoss = (report['loss_percent'] as num?)?.toDouble() ?? 0.0;
+      final lossFactor = rawLoss > 1.0 ? rawLoss / 100.0 : rawLoss;
       final affectedArea = (report['affected_area_ha'] as num?)?.toDouble() ?? 0.0;
-      final lossValue = lossPercent * affectedArea * _calibratedValuePerHectare;
+      final lossValue = lossFactor * affectedArea * _calibratedValuePerHectare;
       
       lossByType[type] = (lossByType[type] ?? 0.0) + lossValue;
     }
