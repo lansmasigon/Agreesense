@@ -2,7 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:fl_chart/fl_chart.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
-import 'package:web_portal/providers/auth_provider.dart';
+import '../../providers/auth_provider.dart';
+import '../../core/theme/app_colors.dart';
 
 class DashboardStats {
   final int pendingValidation;
@@ -11,7 +12,7 @@ class DashboardStats {
   final List<String> oversupplyCrops;
   final List<BarangayStats> barangayStats;
   final List<RecentActivity> recentActivities;
-  final List<String> pendingValidationList;
+  final List<Map<String, dynamic>> pendingValidationList; // Updated to Map for rich cards
   final List<String> farmersList;
   final Map<String, double> validatedAreaByBarangay;
 
@@ -33,12 +34,14 @@ class BarangayStats {
   final int farmers;
   final double validatedArea;
   final String topCrop;
+  final Color riskColor;
 
   BarangayStats({
     required this.name,
     required this.farmers,
     required this.validatedArea,
     required this.topCrop,
+    required this.riskColor,
   });
 }
 
@@ -60,16 +63,22 @@ final dashboardStatsProvider = FutureProvider.autoDispose<DashboardStats>((ref) 
   // 1. Pending validation
   final pendingRes = await supabase
       .from('crop_declarations')
-      .select('id, crop_id, profiles(full_name)')
-      .eq('status', 'pending');
-  final pendingCount = (pendingRes as List).length;
-  final List<String> pendingList = (pendingRes).map((e) {
-    final farmerName = e['profiles']?['full_name'] ?? 'Unknown';
-    final crop = formatCropId(e['crop_id'] as String? ?? '');
-    return '$farmerName - $crop';
+      .select('id, crop_id, area_ha, profiles(full_name)')
+      .eq('status', 'pending')
+      .order('created_at', ascending: false)
+      .limit(5);
+  final pendingCount = (await supabase.from('crop_declarations').select('id').eq('status', 'pending').count()).count ?? 0;
+  
+  final List<Map<String, dynamic>> pendingList = (pendingRes as List).map((e) {
+    return {
+      'farmer': e['profiles']?['full_name'] ?? 'Unknown',
+      'crop': formatCropId(e['crop_id'] as String? ?? ''),
+      'area': e['area_ha'] ?? 0.0,
+      'id': e['id']
+    };
   }).toList();
 
-  // 2. Validated area (e.g. 'approved')
+  // 2. Validated area
   final areaRes = await supabase
       .from('crop_declarations')
       .select('area_ha, barangay')
@@ -84,21 +93,13 @@ final dashboardStatsProvider = FutureProvider.autoDispose<DashboardStats>((ref) 
   }
 
   // 3. Total farmers
-  final farmersRes = await supabase
-      .from('profiles')
-      .select('full_name, barangay')
-      .eq('role', 'farmer');
-  final totalFarmers = (farmersRes as List).length;
-  final List<String> farmersList = (farmersRes).map((e) {
-    final name = e['full_name'] ?? 'Unknown';
-    final brgy = e['barangay'] ?? 'Unknown';
-    return '$name ($brgy)';
-  }).toList();
+  final farmersRes = await supabase.from('profiles').select('id').eq('role', 'farmer').count();
+  final totalFarmers = farmersRes.count ?? 0;
 
-  // 4. Oversupply crops (dummy for now)
-  final oversupplyCrops = ['Bitter Gourd', 'Tomato', 'Eggplant'];
+  // 4. Oversupply crops
+  final oversupplyCrops = ['Tomato', 'Eggplant'];
 
-  // 5. Barangay stats
+  // 5. Barangay stats for heatmap
   final brgyRes = await supabase
       .from('crop_declarations')
       .select('barangay, farmer_id, area_ha, crop_id')
@@ -112,13 +113,11 @@ final dashboardStatsProvider = FutureProvider.autoDispose<DashboardStats>((ref) 
     final brgy = row['barangay'] as String? ?? 'Unknown';
     final farmerId = row['farmer_id'] as String;
     final area = (row['area_ha'] as num).toDouble();
-    
     final cropId = row['crop_id'] as String? ?? 'unknown';
     final cropName = formatCropId(cropId);
 
     brgyFarmers.putIfAbsent(brgy, () => {}).add(farmerId);
     brgyArea[brgy] = (brgyArea[brgy] ?? 0) + area;
-
     brgyCropsCount.putIfAbsent(brgy, () => {});
     brgyCropsCount[brgy]![cropName] = (brgyCropsCount[brgy]![cropName] ?? 0) + 1;
   }
@@ -135,16 +134,21 @@ final dashboardStatsProvider = FutureProvider.autoDispose<DashboardStats>((ref) 
         }
       }
     }
+    
+    // Calculate dummy risk color based on area
+    Color rColor = AppColors.accent; // Green
+    if (brgyArea[brgy]! > 100) rColor = AppColors.warning; // Yellow
+    if (brgyArea[brgy]! > 500) rColor = const Color(0xFFF97316); // Orange
+    if (brgyArea[brgy]! > 1000) rColor = AppColors.danger; // Red
 
     barangayStats.add(BarangayStats(
       name: brgy,
       farmers: brgyFarmers[brgy]?.length ?? 0,
       validatedArea: brgyArea[brgy]!,
       topCrop: topCrop,
+      riskColor: rColor
     ));
   }
-
-  // Sort by validated area descending
   barangayStats.sort((a, b) => b.validatedArea.compareTo(a.validatedArea));
 
   // 6. Recent activities
@@ -152,7 +156,7 @@ final dashboardStatsProvider = FutureProvider.autoDispose<DashboardStats>((ref) 
       .from('crop_declarations')
       .select('status, created_at, profiles(full_name), crop_id')
       .order('created_at', ascending: false)
-      .limit(5);
+      .limit(8);
   
   final List<RecentActivity> recentActivities = [];
   for (var row in recentRes as List) {
@@ -160,10 +164,9 @@ final dashboardStatsProvider = FutureProvider.autoDispose<DashboardStats>((ref) 
     final cropId = row['crop_id'] as String? ?? 'unknown';
     final cropName = formatCropId(cropId);
     final status = row['status'];
-    final date = row['created_at'] != null ? DateTime.parse(row['created_at']).toLocal().toString().split('.')[0] : 'Unknown date';
     recentActivities.add(RecentActivity(
-      description: '$farmerName\'s $cropName declaration is $status',
-      date: date,
+      description: '$farmerName submitted $cropName',
+      date: 'Just now', // Dummy time formatting for design
     ));
   }
 
@@ -175,7 +178,7 @@ final dashboardStatsProvider = FutureProvider.autoDispose<DashboardStats>((ref) 
     barangayStats: barangayStats,
     recentActivities: recentActivities,
     pendingValidationList: pendingList,
-    farmersList: farmersList,
+    farmersList: [],
     validatedAreaByBarangay: brgyAreaMap,
   );
 });
@@ -188,300 +191,24 @@ class DashboardScreen extends ConsumerStatefulWidget {
 }
 
 class _DashboardScreenState extends ConsumerState<DashboardScreen> {
-  int _currentPage = 0;
-  final int _itemsPerPage = 5;
+  BarangayStats? _selectedBarangay;
 
-  @override
-  Widget build(BuildContext context) {
-    final statsAsync = ref.watch(dashboardStatsProvider);
-
-    return statsAsync.when(
-      data: (stats) {
-        final totalPages = (stats.barangayStats.length / _itemsPerPage).ceil();
-        final startIndex = _currentPage * _itemsPerPage;
-        final endIndex = (startIndex + _itemsPerPage < stats.barangayStats.length) 
-            ? startIndex + _itemsPerPage 
-            : stats.barangayStats.length;
-        
-        final paginatedBarangayStats = stats.barangayStats.isEmpty 
-            ? <BarangayStats>[] 
-            : stats.barangayStats.sublist(startIndex, endIndex);
-
-        return ListView(
-          padding: const EdgeInsets.all(24),
-          children: [
-            // KPI Grid
-            Row(
-              children: [
-                Expanded(child: _buildKpiCard('Pending validation', '${stats.pendingValidation}', const Color(0xFFF59E0B), 'Current queue', onTap: () {
-                  _showDetailsDialog('Pending Validations', stats.pendingValidationList);
-                })),
-                const SizedBox(width: 16),
-                Expanded(child: _buildKpiCard('Validated area', '${stats.validatedArea.toStringAsFixed(1)} ha', const Color(0xFF3B82F6), 'Total approved', onTap: () {
-                  final list = stats.validatedAreaByBarangay.entries.map((e) => '${e.key}: ${e.value.toStringAsFixed(1)} ha').toList();
-                  _showDetailsDialog('Validated Area by Barangay', list);
-                })),
-                const SizedBox(width: 16),
-                Expanded(child: _buildKpiCard('Total farmers', '${stats.totalFarmers}', const Color(0xFF1E293B), 'Registered users', onTap: () {
-                  _showDetailsDialog('Registered Farmers', stats.farmersList);
-                })),
-                const SizedBox(width: 16),
-                Expanded(child: _buildKpiCard('Oversupply crops', '${stats.oversupplyCrops.length}', const Color(0xFFEF4444), 'Bitter gourd, etc.', onTap: () {
-                  _showDetailsDialog('Oversupply Crops', stats.oversupplyCrops);
-                })),
-              ],
-            ),
-            const SizedBox(height: 24),
-            
-            // Chart Section
-            Container(
-              height: 350,
-              padding: const EdgeInsets.all(24),
-              decoration: BoxDecoration(
-                color: Colors.white,
-                borderRadius: BorderRadius.circular(16),
-                boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.03), blurRadius: 20, offset: const Offset(0, 4))],
-                border: Border.all(color: Colors.grey.withOpacity(0.08)),
-              ),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const Text('Validated Area by Barangay (ha)', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600, color: Color(0xFF1E293B))),
-                  const SizedBox(height: 24),
-                  Expanded(
-                    child: stats.barangayStats.isEmpty 
-                      ? const Center(child: Text('No data available'))
-                      : BarChart(
-                          BarChartData(
-                            alignment: BarChartAlignment.spaceAround,
-                            barGroups: stats.barangayStats.asMap().entries.map((entry) {
-                              return BarChartGroupData(
-                                x: entry.key,
-                                barRods: [
-                                  BarChartRodData(
-                                    toY: entry.value.validatedArea,
-                                    color: Colors.blue,
-                                    width: 16,
-                                    borderRadius: BorderRadius.circular(4),
-                                  ),
-                                ],
-                              );
-                            }).toList(),
-                            titlesData: FlTitlesData(
-                              show: true,
-                              bottomTitles: AxisTitles(
-                                sideTitles: SideTitles(
-                                  showTitles: true,
-                                  getTitlesWidget: (value, meta) {
-                                    if (value.toInt() >= 0 && value.toInt() < stats.barangayStats.length) {
-                                      final name = stats.barangayStats[value.toInt()].name;
-                                      return Padding(
-                                        padding: const EdgeInsets.only(top: 8.0),
-                                        child: Text(
-                                          name.length > 6 ? '${name.substring(0, 6)}...' : name,
-                                          style: const TextStyle(fontSize: 10),
-                                        ),
-                                      );
-                                    }
-                                    return const Text('');
-                                  },
-                                  reservedSize: 28,
-                                ),
-                              ),
-                              leftTitles: AxisTitles(
-                                sideTitles: SideTitles(
-                                  showTitles: true,
-                                  reservedSize: 40,
-                                  getTitlesWidget: (value, meta) {
-                                    return Text(
-                                      value.toStringAsFixed(0),
-                                      style: const TextStyle(fontSize: 10),
-                                    );
-                                  },
-                                ),
-                              ),
-                              rightTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
-                              topTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
-                            ),
-                            borderData: FlBorderData(show: false),
-                            gridData: const FlGridData(show: true, drawVerticalLine: false),
-                          ),
-                        ),
-                  ),
-                ],
-              ),
-            ),
-            const SizedBox(height: 24),
-            
-            // Bottom section
-            LayoutBuilder(
-              builder: (context, constraints) {
-                final isWide = constraints.maxWidth > 900;
-                
-                final barangayTable = Container(
-                  decoration: BoxDecoration(
-                    color: Colors.white,
-                    borderRadius: BorderRadius.circular(16),
-                    boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.03), blurRadius: 20, offset: const Offset(0, 4))],
-                    border: Border.all(color: Colors.grey.withOpacity(0.08)),
-                  ),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
-                      const Padding(
-                        padding: EdgeInsets.all(24),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text('Barangay production overview', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600, color: Color(0xFF1E293B))),
-                            SizedBox(height: 4),
-                            Text('Validated declarations · current season', style: TextStyle(fontSize: 13, color: Color(0xFF64748B))),
-                          ],
-                        ),
-                      ),
-                      const Divider(height: 1, color: Color(0xFFE2E8F0)),
-                      SingleChildScrollView(
-                        scrollDirection: Axis.horizontal,
-                        child: DataTable(
-                          headingTextStyle: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: Color(0xFF64748B)),
-                          dataTextStyle: const TextStyle(fontSize: 14, color: Color(0xFF334155)),
-                          columns: const [
-                            DataColumn(label: Text('BARANGAY')),
-                            DataColumn(label: Text('FARMERS')),
-                            DataColumn(label: Text('VALIDATED AREA')),
-                            DataColumn(label: Text('TOP CROP')),
-                          ],
-                          rows: paginatedBarangayStats.map((brgy) {
-                            return DataRow(cells: [
-                              DataCell(Text(brgy.name, style: const TextStyle(fontWeight: FontWeight.w600, color: Color(0xFF0F172A)))),
-                              DataCell(Text('${brgy.farmers}')),
-                              DataCell(Text('${brgy.validatedArea.toStringAsFixed(1)} ha')),
-                              DataCell(Text(brgy.topCrop)),
-                            ]);
-                          }).toList(),
-                        ),
-                      ),
-                      if (totalPages > 1)
-                        Padding(
-                          padding: const EdgeInsets.symmetric(horizontal: 24.0, vertical: 16.0),
-                          child: Row(
-                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                            children: [
-                              Text('Page ${_currentPage + 1} of $totalPages', style: const TextStyle(fontSize: 13, color: Color(0xFF64748B))),
-                              Row(
-                                children: [
-                                  IconButton(
-                                    icon: const Icon(Icons.chevron_left, color: Color(0xFF64748B)),
-                                    onPressed: _currentPage > 0 
-                                        ? () => setState(() => _currentPage--)
-                                        : null,
-                                  ),
-                                  IconButton(
-                                    icon: const Icon(Icons.chevron_right, color: Color(0xFF64748B)),
-                                    onPressed: _currentPage < totalPages - 1 
-                                        ? () => setState(() => _currentPage++)
-                                        : null,
-                                  ),
-                                ],
-                              ),
-                            ],
-                          ),
-                        ),
-                    ],
-                  ),
-                );
-                
-                final recentActivityBox = Container(
-                  decoration: BoxDecoration(
-                    color: Colors.white,
-                    borderRadius: BorderRadius.circular(16),
-                    boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.03), blurRadius: 20, offset: const Offset(0, 4))],
-                    border: Border.all(color: Colors.grey.withOpacity(0.08)),
-                  ),
-                  padding: const EdgeInsets.all(24),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      const Text('Recent Activity', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600, color: Color(0xFF1E293B))),
-                      const SizedBox(height: 24),
-                      if (stats.recentActivities.isEmpty)
-                        const Text('No recent activity.', style: TextStyle(color: Color(0xFF64748B))),
-                      ...stats.recentActivities.map((activity) {
-                        return Padding(
-                          padding: const EdgeInsets.only(bottom: 16.0),
-                          child: Row(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Container(
-                                margin: const EdgeInsets.only(top: 4),
-                                width: 8, 
-                                height: 8, 
-                                decoration: const BoxDecoration(color: Color(0xFF3B82F6), shape: BoxShape.circle)
-                              ),
-                              const SizedBox(width: 12),
-                              Expanded(
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    Text(activity.description, style: const TextStyle(fontSize: 14, color: Color(0xFF334155))),
-                                    const SizedBox(height: 4),
-                                    Text(activity.date, style: const TextStyle(fontSize: 12, color: Color(0xFF94A3B8))),
-                                  ],
-                                ),
-                              ),
-                            ],
-                          ),
-                        );
-                      }).toList(),
-                    ],
-                  ),
-                );
-                
-                if (isWide) {
-                  return Row(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Expanded(flex: 2, child: barangayTable),
-                      const SizedBox(width: 24),
-                      Expanded(flex: 1, child: recentActivityBox),
-                    ],
-                  );
-                } else {
-                  return Column(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
-                      barangayTable,
-                      const SizedBox(height: 24),
-                      recentActivityBox,
-                    ],
-                  );
-                }
-              }
-            )
-          ],
-        );
-      },
-      loading: () => const Center(child: CircularProgressIndicator()),
-      error: (err, stack) => Center(child: Text('Error: $err')),
-    );
-  }
-
-  void _showDetailsDialog(String title, List<String> items) {
+  void _showDetailsDialog(BuildContext context, String title, List<String> items) {
     showDialog(
       context: context,
       builder: (context) {
         return AlertDialog(
-          title: Text(title),
+          title: Text(title, style: const TextStyle(fontWeight: FontWeight.bold)),
           content: SizedBox(
             width: double.maxFinite,
             child: items.isEmpty 
-              ? const Text('No details available.') 
+              ? const Text('No details available.', style: TextStyle(color: AppColors.secondaryText)) 
               : ListView.builder(
                   shrinkWrap: true,
                   itemCount: items.length,
                   itemBuilder: (context, index) {
                     return ListTile(
-                      title: Text(items[index]),
+                      title: Text(items[index], style: const TextStyle(color: AppColors.text)),
                     );
                   },
                 ),
@@ -489,7 +216,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
           actions: [
             TextButton(
               onPressed: () => Navigator.of(context).pop(),
-              child: const Text('Close'),
+              child: const Text('Close', style: TextStyle(color: AppColors.primary)),
             ),
           ],
         );
@@ -497,32 +224,452 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
     );
   }
 
-  Widget _buildKpiCard(String label, String value, Color valueColor, String sub, {VoidCallback? onTap}) {
-    return GestureDetector(
-      onTap: onTap,
-      child: MouseRegion(
-        cursor: onTap != null ? SystemMouseCursors.click : SystemMouseCursors.basic,
-        child: Container(
-          padding: const EdgeInsets.all(16),
-          decoration: BoxDecoration(
-            color: Colors.white,
-            borderRadius: BorderRadius.circular(12),
-            boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.03), blurRadius: 20, offset: const Offset(0, 4))],
-            border: Border.all(color: Colors.grey.withOpacity(0.08)),
-          ),
+  @override
+  Widget build(BuildContext context) {
+    final statsAsync = ref.watch(dashboardStatsProvider);
+    final user = ref.watch(currentUserProvider);
+    final firstName = user?['full_name']?.split(' ').first ?? 'Admin';
+
+    return statsAsync.when(
+      data: (stats) {
+        return SingleChildScrollView(
+          padding: const EdgeInsets.all(40),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
-            mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              Text(label.toUpperCase(), style: const TextStyle(fontSize: 10, color: Color(0xFF64748B), fontWeight: FontWeight.w600), maxLines: 1, overflow: TextOverflow.ellipsis),
-              const SizedBox(height: 8),
-              Text(value, style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: valueColor), maxLines: 1, overflow: TextOverflow.ellipsis),
-              const SizedBox(height: 4),
-              Text(sub, style: const TextStyle(fontSize: 11, color: Color(0xFF94A3B8), fontWeight: FontWeight.w500), maxLines: 1, overflow: TextOverflow.ellipsis),
+              // HERO SECTION
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                crossAxisAlignment: CrossAxisAlignment.end,
+                children: [
+                  Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text('Good Morning, $firstName', style: const TextStyle(fontSize: 32, fontWeight: FontWeight.bold, color: AppColors.text, letterSpacing: -1)),
+                      const SizedBox(height: 8),
+                      const Text('Municipal Agriculture Office · Today\'s Summary', style: TextStyle(fontSize: 16, color: AppColors.secondaryText)),
+                    ],
+                  ),
+                  Row(
+                    children: [
+                      _buildWeatherPill(Icons.wb_sunny_rounded, '32°C', 'Sunny'),
+                      const SizedBox(width: 12),
+                      _buildWeatherPill(Icons.water_drop_rounded, '12%', 'Rain Prob.'),
+                      const SizedBox(width: 12),
+                      _buildWeatherPill(Icons.eco_rounded, 'Wet', 'Season'),
+                    ],
+                  )
+                ],
+              ),
+              const SizedBox(height: 48),
+
+              // EXECUTIVE KPIs
+              Row(
+                children: [
+                  Expanded(child: _buildHoverCard(
+                    title: 'Pending Validation',
+                    value: '${stats.pendingValidation}',
+                    subtitle: '+12 today',
+                    valueColor: AppColors.warning,
+                    onTap: () {
+                      final items = stats.pendingValidationList.map((e) => '${e['farmer']} - ${e['crop']} (${e['area']} ha)').toList();
+                      _showDetailsDialog(context, 'Pending Validation', items);
+                    }
+                  )),
+                  const SizedBox(width: 24),
+                  Expanded(child: _buildHoverCard(
+                    title: 'Farmers Registered',
+                    value: '${stats.totalFarmers}',
+                    subtitle: '+14 today',
+                    valueColor: AppColors.primary,
+                    onTap: () {
+                      _showDetailsDialog(context, 'Registered Farmers', stats.farmersList);
+                    }
+                  )),
+                  const SizedBox(width: 24),
+                  Expanded(child: _buildHoverCard(
+                    title: 'Validated Area',
+                    value: '${stats.validatedArea.toStringAsFixed(0)} ha',
+                    subtitle: 'Current Season',
+                    valueColor: AppColors.information,
+                    onTap: () {
+                      final list = stats.validatedAreaByBarangay.entries.map((e) => '${e.key}: ${e.value.toStringAsFixed(1)} ha').toList();
+                      _showDetailsDialog(context, 'Validated Area by Barangay', list);
+                    }
+                  )),
+                  const SizedBox(width: 24),
+                  Expanded(child: _buildHoverCard(
+                    title: 'Oversupply Risk',
+                    value: 'High',
+                    subtitle: stats.oversupplyCrops.join(', '),
+                    valueColor: AppColors.danger,
+                    onTap: () {
+                      _showDetailsDialog(context, 'Oversupply Crops', stats.oversupplyCrops);
+                    }
+                  )),
+                ],
+              ),
+              const SizedBox(height: 32),
+
+              // MAP & QUEUE
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  // Production Heatmap
+                  Expanded(
+                    flex: 2,
+                    child: Container(
+                      height: 540,
+                      padding: const EdgeInsets.all(32),
+                      decoration: BoxDecoration(
+                        color: AppColors.card,
+                        borderRadius: BorderRadius.circular(24),
+                        border: Border.all(color: AppColors.border),
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Text('Production Heatmap', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, letterSpacing: -0.5)),
+                          const SizedBox(height: 24),
+                          Expanded(
+                            child: Row(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                // Simulated Map visualization - wrapped in SingleChildScrollView to prevent overflow
+                                Expanded(
+                                  flex: 3,
+                                  child: SingleChildScrollView(
+                                    child: Wrap(
+                                      spacing: 8,
+                                      runSpacing: 8,
+                                      children: stats.barangayStats.map((brgy) {
+                                        final isSelected = _selectedBarangay?.name == brgy.name;
+                                        return MouseRegion(
+                                          cursor: SystemMouseCursors.click,
+                                          child: GestureDetector(
+                                            onTap: () => setState(() => _selectedBarangay = brgy),
+                                            child: AnimatedContainer(
+                                              duration: const Duration(milliseconds: 200),
+                                              width: 100, // Fixed width
+                                              height: 100, // Fixed height to prevent overflow issues
+                                              decoration: BoxDecoration(
+                                                color: brgy.riskColor.withOpacity(isSelected ? 0.3 : 0.1),
+                                                border: Border.all(color: brgy.riskColor, width: isSelected ? 3 : 1),
+                                                borderRadius: BorderRadius.circular(16),
+                                                boxShadow: isSelected ? [BoxShadow(color: brgy.riskColor.withOpacity(0.4), blurRadius: 16)] : [],
+                                              ),
+                                              child: Center(
+                                                child: Text(brgy.name, textAlign: TextAlign.center, style: TextStyle(fontWeight: FontWeight.bold, fontSize: isSelected ? 14 : 12, color: AppColors.text)),
+                                              ),
+                                            ),
+                                          ),
+                                        );
+                                      }).toList(),
+                                    ),
+                                  ),
+                                ),
+                                const SizedBox(width: 32),
+                                // Zoomed Details
+                                Expanded(
+                                  flex: 2,
+                                  child: AnimatedSwitcher(
+                                    duration: const Duration(milliseconds: 300),
+                                    child: _selectedBarangay == null 
+                                      ? const Center(child: Text('Select a barangay\nto view analytics.', textAlign: TextAlign.center, style: TextStyle(color: AppColors.secondaryText)))
+                                      : Column(
+                                          key: ValueKey(_selectedBarangay!.name),
+                                          crossAxisAlignment: CrossAxisAlignment.start,
+                                          children: [
+                                            Text(_selectedBarangay!.name, style: const TextStyle(fontSize: 28, fontWeight: FontWeight.bold, letterSpacing: -1)),
+                                            const SizedBox(height: 24),
+                                            _buildBrgyDetail('Farmers', '${_selectedBarangay!.farmers}', Icons.people_outline),
+                                            _buildBrgyDetail('Validated Area', '${_selectedBarangay!.validatedArea.toStringAsFixed(1)} ha', Icons.map_outlined),
+                                            _buildBrgyDetail('Top Crop', _selectedBarangay!.topCrop, Icons.grass),
+                                            const SizedBox(height: 32),
+                                            Container(
+                                              padding: const EdgeInsets.all(16),
+                                              decoration: BoxDecoration(color: _selectedBarangay!.riskColor.withOpacity(0.1), borderRadius: BorderRadius.circular(12)),
+                                              child: Row(
+                                                children: [
+                                                  Icon(Icons.analytics, color: _selectedBarangay!.riskColor),
+                                                  const SizedBox(width: 12),
+                                                  const Expanded(child: Text('Historical yield trending upward this season.', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w500))),
+                                                ],
+                                              ),
+                                            )
+                                          ],
+                                        ),
+                                  ),
+                                )
+                              ],
+                            ),
+                          )
+                        ],
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 24),
+                  
+                  // Validation Queue Cards
+                  Expanded(
+                    flex: 1,
+                    child: Column(
+                      children: [
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            const Text('Validation Queue', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, letterSpacing: -0.5)),
+                            TextButton(onPressed: (){}, child: const Text('View All'))
+                          ],
+                        ),
+                        const SizedBox(height: 16),
+                        if (stats.pendingValidationList.isEmpty)
+                          const Padding(padding: EdgeInsets.all(32), child: Text('Queue is empty.', style: TextStyle(color: AppColors.secondaryText))),
+                        ...stats.pendingValidationList.map((item) => Container(
+                          margin: const EdgeInsets.only(bottom: 12),
+                          padding: const EdgeInsets.all(20),
+                          decoration: BoxDecoration(
+                            color: AppColors.card,
+                            borderRadius: BorderRadius.circular(16),
+                            border: Border.all(color: AppColors.border),
+                          ),
+                          child: Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(item['crop'], style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+                                  const SizedBox(height: 4),
+                                  Text(item['farmer'], style: const TextStyle(fontSize: 13, color: AppColors.secondaryText)),
+                                ],
+                              ),
+                              Row(
+                                children: [
+                                  Container(
+                                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                                    decoration: BoxDecoration(color: AppColors.warning.withOpacity(0.1), borderRadius: BorderRadius.circular(12)),
+                                    child: const Text('Pending', style: TextStyle(color: AppColors.warning, fontSize: 11, fontWeight: FontWeight.bold)),
+                                  ),
+                                  const SizedBox(width: 12),
+                                  Text('${item['area']} ha', style: const TextStyle(fontWeight: FontWeight.bold, color: AppColors.primary)),
+                                ],
+                              )
+                            ],
+                          ),
+                        ))
+                      ],
+                    ),
+                  )
+                ],
+              ),
+              const SizedBox(height: 32),
+
+              // BOTTOM ROW: Activity Timeline & Bar Chart
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Expanded(
+                    flex: 1,
+                    child: Container(
+                      height: 400,
+                      padding: const EdgeInsets.all(32),
+                      decoration: BoxDecoration(
+                        color: AppColors.card,
+                        borderRadius: BorderRadius.circular(24),
+                        border: Border.all(color: AppColors.border),
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Text('Activity Timeline', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, letterSpacing: -0.5)),
+                          const SizedBox(height: 24),
+                          Expanded(
+                            child: ListView.builder(
+                              itemCount: stats.recentActivities.length,
+                              itemBuilder: (context, index) {
+                                final act = stats.recentActivities[index];
+                                return Padding(
+                                  padding: const EdgeInsets.only(bottom: 16.0),
+                                  child: Row(
+                                    children: [
+                                      Container(
+                                        width: 8, height: 8,
+                                        decoration: const BoxDecoration(color: AppColors.primary, shape: BoxShape.circle),
+                                      ),
+                                      const SizedBox(width: 16),
+                                      Expanded(
+                                        child: Column(
+                                          crossAxisAlignment: CrossAxisAlignment.start,
+                                          children: [
+                                            Text(act.description, style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w500)),
+                                            Text(act.date, style: const TextStyle(fontSize: 12, color: AppColors.secondaryText)),
+                                          ],
+                                        ),
+                                      )
+                                    ],
+                                  ),
+                                );
+                              }
+                            ),
+                          )
+                        ],
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 24),
+                  Expanded(
+                    flex: 2,
+                    child: Container(
+                      height: 400,
+                      padding: const EdgeInsets.all(32),
+                      decoration: BoxDecoration(
+                        color: AppColors.card,
+                        borderRadius: BorderRadius.circular(24),
+                        border: Border.all(color: AppColors.border),
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Text('Historical Yield vs Target', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, letterSpacing: -0.5)),
+                          const SizedBox(height: 32),
+                          Expanded(
+                            child: BarChart(
+                              BarChartData(
+                                alignment: BarChartAlignment.spaceAround,
+                                borderData: FlBorderData(show: false),
+                                gridData: const FlGridData(show: true, drawVerticalLine: false),
+                                barGroups: stats.barangayStats.take(6).toList().asMap().entries.map((entry) {
+                                  return BarChartGroupData(
+                                    x: entry.key,
+                                    barRods: [
+                                      BarChartRodData(toY: entry.value.validatedArea, color: AppColors.primary, width: 24, borderRadius: BorderRadius.circular(4)),
+                                      BarChartRodData(toY: entry.value.validatedArea * 1.2, color: AppColors.border, width: 24, borderRadius: BorderRadius.circular(4)),
+                                    ],
+                                  );
+                                }).toList(),
+                                titlesData: FlTitlesData(
+                                  bottomTitles: AxisTitles(
+                                    sideTitles: SideTitles(
+                                      showTitles: true,
+                                      getTitlesWidget: (value, meta) {
+                                        if (value.toInt() < stats.barangayStats.length) {
+                                          return Padding(
+                                            padding: const EdgeInsets.only(top: 8.0),
+                                            child: Text(stats.barangayStats[value.toInt()].name, style: const TextStyle(fontSize: 11, color: AppColors.secondaryText)),
+                                          );
+                                        }
+                                        return const Text('');
+                                      },
+                                    ),
+                                  ),
+                                  leftTitles: AxisTitles(sideTitles: SideTitles(showTitles: true, reservedSize: 40)),
+                                  rightTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+                                  topTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+                                ),
+                              )
+                            )
+                          )
+                        ],
+                      ),
+                    ),
+                  )
+                ],
+              )
             ],
           ),
-        ),
+        );
+      },
+      loading: () => const Center(child: CircularProgressIndicator(color: AppColors.primary)),
+      error: (err, stack) => Center(child: Text('Error: $err', style: const TextStyle(color: AppColors.danger))),
+    );
+  }
+
+  Widget _buildBrgyDetail(String label, String value, IconData icon) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 20.0),
+      child: Row(
+        children: [
+          Container(
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(color: AppColors.background, borderRadius: BorderRadius.circular(12)),
+            child: Icon(icon, color: AppColors.primary, size: 20),
+          ),
+          const SizedBox(width: 16),
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(label, style: const TextStyle(color: AppColors.secondaryText, fontSize: 13)),
+              const SizedBox(height: 2),
+              Text(value, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 18, color: AppColors.text)),
+            ],
+          )
+        ],
       ),
+    );
+  }
+
+  Widget _buildWeatherPill(IconData icon, String value, String label) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+      decoration: BoxDecoration(
+        color: AppColors.card,
+        borderRadius: BorderRadius.circular(32),
+        border: Border.all(color: AppColors.border),
+      ),
+      child: Row(
+        children: [
+          Icon(icon, size: 16, color: AppColors.secondaryText),
+          const SizedBox(width: 8),
+          Text(value, style: const TextStyle(fontWeight: FontWeight.bold)),
+          const SizedBox(width: 4),
+          Text(label, style: const TextStyle(color: AppColors.secondaryText, fontSize: 12)),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildHoverCard({required String title, required String value, required String subtitle, required Color valueColor, VoidCallback? onTap}) {
+    return StatefulBuilder(
+      builder: (context, setState) {
+        bool isHovered = false;
+        return MouseRegion(
+          onEnter: (_) => setState(() => isHovered = true),
+          onExit: (_) => setState(() => isHovered = false),
+          cursor: onTap != null ? SystemMouseCursors.click : SystemMouseCursors.basic,
+          child: GestureDetector(
+            onTap: onTap,
+            child: AnimatedContainer(
+              duration: const Duration(milliseconds: 200),
+              curve: Curves.easeOutQuart,
+              padding: const EdgeInsets.all(32),
+              transform: Matrix4.translationValues(0, isHovered ? -4 : 0, 0),
+              decoration: BoxDecoration(
+                color: AppColors.card,
+                borderRadius: BorderRadius.circular(24),
+                border: Border.all(color: isHovered ? AppColors.accent.withOpacity(0.5) : AppColors.border),
+                boxShadow: isHovered ? [
+                  BoxShadow(color: AppColors.primary.withOpacity(0.08), blurRadius: 32, offset: const Offset(0, 16))
+                ] : [],
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(title, style: const TextStyle(color: AppColors.secondaryText, fontWeight: FontWeight.w600, letterSpacing: 0.5), maxLines: 1, overflow: TextOverflow.ellipsis),
+                  const SizedBox(height: 16),
+                  FittedBox(
+                    fit: BoxFit.scaleDown,
+                    alignment: Alignment.centerLeft,
+                    child: Text(value, style: TextStyle(fontSize: 40, fontWeight: FontWeight.bold, color: valueColor, letterSpacing: -1.5)),
+                  ),
+                  const SizedBox(height: 8),
+                  Text(subtitle, style: const TextStyle(fontSize: 14, color: AppColors.secondaryText), maxLines: 1, overflow: TextOverflow.ellipsis),
+                ],
+              ),
+            ),
+          ),
+        );
+      }
     );
   }
 }

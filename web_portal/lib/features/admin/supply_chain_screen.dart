@@ -1,7 +1,8 @@
 import 'package:flutter/material.dart';
-import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../providers/auth_provider.dart';
+import '../../core/theme/app_colors.dart';
+import 'dart:math' as math;
 
 class SupplyChainData {
   final List<Map<String, dynamic>> marketChannels;
@@ -22,218 +23,364 @@ final supplyChainProvider = FutureProvider.autoDispose<SupplyChainData>((ref) as
   );
 });
 
-class SupplyChainScreen extends ConsumerWidget {
+class SupplyChainScreen extends ConsumerStatefulWidget {
   const SupplyChainScreen({super.key});
 
-  void _showDetailsDialog(BuildContext context, String title, List<String> items) {
-    showDialog(
-      context: context,
-      builder: (context) {
-        return AlertDialog(
-          title: Text(title),
-          content: SizedBox(
-            width: double.maxFinite,
-            child: items.isEmpty 
-              ? const Text('No details available.') 
-              : ListView.builder(
-                  shrinkWrap: true,
-                  itemCount: items.length,
-                  itemBuilder: (context, index) {
-                    return ListTile(
-                      title: Text(items[index]),
-                    );
-                  },
-                ),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.of(context).pop(),
-              child: const Text('Close'),
-            ),
-          ],
-        );
-      },
-    );
+  @override
+  ConsumerState<SupplyChainScreen> createState() => _SupplyChainScreenState();
+}
+
+class _SupplyChainScreenState extends ConsumerState<SupplyChainScreen> with SingleTickerProviderStateMixin {
+  Map<String, dynamic>? _selectedCoop;
+  Map<String, dynamic>? _selectedMarket;
+  late AnimationController _gaugeController;
+
+  @override
+  void initState() {
+    super.initState();
+    _gaugeController = AnimationController(vsync: this, duration: const Duration(seconds: 2))..forward();
   }
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  void dispose() {
+    _gaugeController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
     final dataAsync = ref.watch(supplyChainProvider);
 
     return Scaffold(
-      backgroundColor: const Color(0xFFF9FCFA),
-      appBar: AppBar(
-        title: const Text('Supply Chain Governance', style: TextStyle(color: Color(0xFF1E392A), fontWeight: FontWeight.w600)),
-        backgroundColor: Colors.white,
-        elevation: 1,
-        iconTheme: const IconThemeData(color: Color(0xFF1E392A)),
-      ),
+      backgroundColor: AppColors.background,
       body: dataAsync.when(
         data: (data) {
+          final wholesales = data.marketChannels.where((c) => c['type']?.toString().toLowerCase().contains('wholesale') ?? false).length;
+          final retails = data.marketChannels.where((c) => c['type']?.toString().toLowerCase().contains('retail') ?? false).length;
+          final exports = data.marketChannels.where((c) => c['type']?.toString().toLowerCase().contains('export') ?? false).length;
+          final institutionals = data.marketChannels.length - wholesales - retails - exports;
+
           return SingleChildScrollView(
-            padding: const EdgeInsets.all(24.0),
+            padding: const EdgeInsets.all(40.0),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                // KPI Cards
+                // HERO GAUGE
+                Center(
+                  child: Column(
+                    children: [
+                      const Text('Market Health', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: AppColors.secondaryText, letterSpacing: 2)),
+                      const SizedBox(height: 24),
+                      SizedBox(
+                        width: 200,
+                        height: 200,
+                        child: AnimatedBuilder(
+                          animation: _gaugeController,
+                          builder: (context, child) {
+                            return CustomPaint(
+                              painter: CircularGaugePainter(progress: 0.85 * _gaugeController.value, color: AppColors.primary),
+                              child: const Center(
+                                child: Text('85%', style: TextStyle(fontSize: 48, fontWeight: FontWeight.bold, color: AppColors.text, letterSpacing: -2)),
+                              ),
+                            );
+                          }
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      const Text('Strong demand. Oversupply risks mitigated.', style: TextStyle(color: AppColors.primary, fontWeight: FontWeight.w600)),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 64),
+
+                // WHOLESALE / RETAIL CARDS
                 Row(
                   children: [
-                    _buildKpiCard(context, 'Total Channels', '${data.marketChannels.length}', Icons.storefront, const Color(0xFF2E7D32), onTap: () {
-                      final items = data.marketChannels.map((e) => '${e['name']} (${e['type']})').toList();
-                      _showDetailsDialog(context, 'Market Channels', items);
-                    }),
-                    const SizedBox(width: 16),
-                    _buildKpiCard(context, 'Total Cooperatives', '${data.cooperatives.length}', Icons.groups, const Color(0xFF4CAF50), onTap: () {
-                      final items = data.cooperatives.map((e) => '${e['name']} (${e['location']})').toList();
-                      _showDetailsDialog(context, 'Cooperatives', items);
-                    }),
-                    const SizedBox(width: 16),
-                    _buildKpiCard(context, 'Market Saturation Index', '85% (High)', Icons.warning_amber, Colors.orange, onTap: () {
-                      _showDetailsDialog(context, 'Market Saturation Index', [
-                        'Currently High due to oversupply of tomatoes and bitter gourd in top barangays.',
-                        'Consider alternative markets.'
-                      ]);
-                    }),
+                    Expanded(child: _buildChannelCard('Wholesale', wholesales.toString(), Icons.warehouse_rounded, AppColors.primary)),
+                    const SizedBox(width: 24),
+                    Expanded(child: _buildChannelCard('Market Channels', data.marketChannels.length.toString(), Icons.storefront_rounded, AppColors.information)),
+                    const SizedBox(width: 24),
+                    Expanded(child: _buildChannelCard('Cooperatives', data.cooperatives.length.toString(), Icons.domain_rounded, AppColors.accent)),
+                    const SizedBox(width: 24),
+                    Expanded(child: _buildChannelCard('Export', exports.toString(), Icons.flight_takeoff_rounded, AppColors.warning)),
                   ],
                 ),
-                const SizedBox(height: 32),
+                const SizedBox(height: 48),
                 
                 Row(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    // Market Channels Table
+                    // LEFT: Interactive Cooperatives
                     Expanded(
-                      child: Container(
-                        decoration: BoxDecoration(
-                          color: Colors.white,
-                          borderRadius: BorderRadius.circular(12),
-                          boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.04), blurRadius: 10, offset: const Offset(0, 4))],
-                        ),
-                        child: Padding(
-                          padding: const EdgeInsets.all(24.0),
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              const Text('Market Channels', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Color(0xFF1E392A))),
-                              const SizedBox(height: 24),
-                              data.marketChannels.isEmpty 
-                                  ? const Center(child: Padding(padding: EdgeInsets.all(16.0), child: Text('No market channels found.', style: TextStyle(color: Colors.grey))))
-                                  : SizedBox(
-                                      width: double.infinity,
-                                      child: SingleChildScrollView(
-                                        scrollDirection: Axis.horizontal,
-                                        child: DataTable(
-                                          headingRowColor: MaterialStateProperty.all(const Color(0xFFF1F8F4)),
-                                          columns: const [
-                                            DataColumn(label: Text('Name', style: TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF1E392A)))),
-                                            DataColumn(label: Text('Type', style: TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF1E392A)))),
-                                            DataColumn(label: Text('Location', style: TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF1E392A)))),
-                                          ],
-                                          rows: data.marketChannels.map((mc) {
-                                            return DataRow(cells: [
-                                              DataCell(Text(mc['name']?.toString() ?? 'N/A', style: const TextStyle(color: Color(0xFF333333)))),
-                                              DataCell(Text(mc['type']?.toString() ?? 'N/A', style: const TextStyle(color: Color(0xFF333333)))),
-                                              DataCell(Text(mc['location']?.toString() ?? 'N/A', style: const TextStyle(color: Color(0xFF333333)))),
-                                            ]);
-                                          }).toList(),
+                      flex: 2,
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Text('Active Cooperatives', style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold, letterSpacing: -0.5)),
+                          const SizedBox(height: 24),
+                          Container(
+                            decoration: BoxDecoration(
+                              color: AppColors.card,
+                              borderRadius: BorderRadius.circular(24),
+                              border: Border.all(color: AppColors.border),
+                            ),
+                            child: ListView.separated(
+                              shrinkWrap: true,
+                              physics: const NeverScrollableScrollPhysics(),
+                              itemCount: data.cooperatives.length,
+                              separatorBuilder: (_, __) => const Divider(height: 1, color: AppColors.border),
+                              itemBuilder: (context, index) {
+                                final coop = data.cooperatives[index];
+                                final isSelected = _selectedCoop?['id'] == coop['id'];
+                                
+                                return InkWell(
+                                  onTap: () => setState(() => _selectedCoop = coop),
+                                  child: Container(
+                                    padding: const EdgeInsets.all(24),
+                                    color: isSelected ? AppColors.accent.withOpacity(0.05) : Colors.transparent,
+                                    child: Row(
+                                      children: [
+                                        Container(
+                                          padding: const EdgeInsets.all(12),
+                                          decoration: BoxDecoration(color: AppColors.background, borderRadius: BorderRadius.circular(12), border: Border.all(color: isSelected ? AppColors.primary : Colors.transparent)),
+                                          child: Icon(Icons.groups_rounded, color: isSelected ? AppColors.primary : AppColors.secondaryText),
                                         ),
-                                      ),
+                                        const SizedBox(width: 20),
+                                        Expanded(
+                                          child: Column(
+                                            crossAxisAlignment: CrossAxisAlignment.start,
+                                            children: [
+                                              Text(coop['name'] ?? 'Unknown', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: isSelected ? AppColors.primary : AppColors.text)),
+                                              const SizedBox(height: 4),
+                                              Text(coop['location'] ?? 'Location N/A', style: const TextStyle(color: AppColors.secondaryText, fontSize: 13)),
+                                            ],
+                                          ),
+                                        ),
+                                        if (isSelected) const Icon(Icons.map_rounded, color: AppColors.primary),
+                                      ],
                                     ),
-                            ],
+                                  ),
+                                );
+                              },
+                            ),
                           ),
-                        ),
+                          
+                          const SizedBox(height: 48),
+                          const Text('Market Channels', style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold, letterSpacing: -0.5)),
+                          const SizedBox(height: 24),
+                          Container(
+                            decoration: BoxDecoration(
+                              color: AppColors.card,
+                              borderRadius: BorderRadius.circular(24),
+                              border: Border.all(color: AppColors.border),
+                            ),
+                            child: ListView.separated(
+                              shrinkWrap: true,
+                              physics: const NeverScrollableScrollPhysics(),
+                              itemCount: data.marketChannels.length,
+                              separatorBuilder: (_, __) => const Divider(height: 1, color: AppColors.border),
+                              itemBuilder: (context, index) {
+                                final mc = data.marketChannels[index];
+                                final isSelected = _selectedMarket?['name'] == mc['name'];
+                                
+                                return InkWell(
+                                  onTap: () => setState(() => _selectedMarket = mc),
+                                  child: Container(
+                                    padding: const EdgeInsets.all(24),
+                                    color: isSelected ? AppColors.accent.withOpacity(0.05) : Colors.transparent,
+                                    child: Row(
+                                      children: [
+                                        Container(
+                                          padding: const EdgeInsets.all(12),
+                                          decoration: BoxDecoration(color: AppColors.background, borderRadius: BorderRadius.circular(12), border: Border.all(color: isSelected ? AppColors.primary : Colors.transparent)),
+                                          child: Icon(Icons.storefront_rounded, color: isSelected ? AppColors.primary : AppColors.secondaryText),
+                                        ),
+                                        const SizedBox(width: 20),
+                                        Expanded(
+                                          child: Column(
+                                            crossAxisAlignment: CrossAxisAlignment.start,
+                                            children: [
+                                              Text(mc['name'] ?? 'Unknown', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: isSelected ? AppColors.primary : AppColors.text)),
+                                              const SizedBox(height: 4),
+                                              Row(
+                                                children: [
+                                                  Container(
+                                                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                                                    decoration: BoxDecoration(color: AppColors.border.withOpacity(0.5), borderRadius: BorderRadius.circular(8)),
+                                                    child: Text(mc['type'] ?? 'N/A', style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w600)),
+                                                  ),
+                                                  const SizedBox(width: 8),
+                                                  Text(mc['location'] ?? 'Location N/A', style: const TextStyle(color: AppColors.secondaryText, fontSize: 13)),
+                                                ],
+                                              )
+                                            ],
+                                          ),
+                                        ),
+                                        if (isSelected) const Icon(Icons.map_rounded, color: AppColors.primary),
+                                      ],
+                                    ),
+                                  ),
+                                );
+                              },
+                            ),
+                          )
+                        ],
                       ),
                     ),
-                    const SizedBox(width: 24),
-                    // Cooperatives Table
+                    const SizedBox(width: 48),
+                    // RIGHT: Map details & GitHub feed
                     Expanded(
-                      child: Container(
-                        decoration: BoxDecoration(
-                          color: Colors.white,
-                          borderRadius: BorderRadius.circular(12),
-                          boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.04), blurRadius: 10, offset: const Offset(0, 4))],
-                        ),
-                        child: Padding(
-                          padding: const EdgeInsets.all(24.0),
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              const Text('Cooperatives', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Color(0xFF1E392A))),
-                              const SizedBox(height: 24),
-                              data.cooperatives.isEmpty 
-                                  ? const Center(child: Padding(padding: EdgeInsets.all(16.0), child: Text('No cooperatives found.', style: TextStyle(color: Colors.grey))))
-                                  : SizedBox(
-                                      width: double.infinity,
-                                      child: SingleChildScrollView(
-                                        scrollDirection: Axis.horizontal,
-                                        child: DataTable(
-                                          headingRowColor: MaterialStateProperty.all(const Color(0xFFF1F8F4)),
-                                          columns: const [
-                                            DataColumn(label: Text('Name', style: TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF1E392A)))),
-                                            DataColumn(label: Text('Location', style: TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF1E392A)))),
-                                            DataColumn(label: Text('Contact', style: TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF1E392A)))),
-                                          ],
-                                          rows: data.cooperatives.map((coop) {
-                                            return DataRow(cells: [
-                                              DataCell(Text(coop['name']?.toString() ?? 'N/A', style: const TextStyle(color: Color(0xFF333333)))),
-                                              DataCell(Text(coop['location']?.toString() ?? 'N/A', style: const TextStyle(color: Color(0xFF333333)))),
-                                              DataCell(Text(coop['contact_info']?.toString() ?? 'N/A', style: const TextStyle(color: Color(0xFF333333)))),
-                                            ]);
-                                          }).toList(),
-                                        ),
-                                      ),
-                                    ),
-                            ],
-                          ),
-                        ),
+                      flex: 1,
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          if (_selectedCoop != null) ...[
+                             Container(
+                               height: 200,
+                               width: double.infinity,
+                               decoration: BoxDecoration(
+                                 color: AppColors.card,
+                                 borderRadius: BorderRadius.circular(24),
+                                 border: Border.all(color: AppColors.primary, width: 2),
+                                 image: const DecorationImage(
+                                   image: NetworkImage('https://images.unsplash.com/photo-1524661135-423995f22d0b?q=80&w=600&auto=format&fit=crop'),
+                                   fit: BoxFit.cover,
+                                   opacity: 0.8
+                                 )
+                               ),
+                               child: Center(
+                                 child: Container(
+                                   padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                                   decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(20), boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.1), blurRadius: 10)]),
+                                   child: Row(
+                                     mainAxisSize: MainAxisSize.min,
+                                     children: [
+                                       const Icon(Icons.location_on, color: AppColors.danger, size: 16),
+                                       const SizedBox(width: 8),
+                                       Text(_selectedCoop!['location'] ?? '', style: const TextStyle(fontWeight: FontWeight.bold)),
+                                     ],
+                                   ),
+                                 ),
+                               ),
+                             ),
+                             const SizedBox(height: 48),
+                          ],
+
+                          const Text('Activity Feed', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: AppColors.secondaryText, letterSpacing: 1.5)),
+                          const SizedBox(height: 24),
+                          _buildGitHubFeedItem('Juan Dela Cruz', 'submitted', 'Tomato', '5 min ago'),
+                          _buildGitHubFeedItem('Maria Santos', 'approved', 'Eggplant', '8 min ago', isSuccess: true),
+                          _buildGitHubFeedItem('System', 'updated', 'Market Prices', '1 hr ago', isSystem: true),
+                          _buildGitHubFeedItem('Pedro Reyes', 'submitted', 'Rice', '2 hrs ago'),
+                        ],
                       ),
-                    ),
+                    )
                   ],
                 ),
               ],
             ),
           );
         },
-        loading: () => const Center(child: CircularProgressIndicator(color: Color(0xFF2E7D32))),
+        loading: () => const Center(child: CircularProgressIndicator(color: AppColors.primary)),
         error: (err, stack) => Center(child: Text('Error: $err')),
       ),
     );
   }
 
-  Widget _buildKpiCard(BuildContext context, String title, String value, IconData icon, Color color, {VoidCallback? onTap}) {
-    return Expanded(
-      child: GestureDetector(
-        onTap: onTap,
-        child: MouseRegion(
-          cursor: onTap != null ? SystemMouseCursors.click : SystemMouseCursors.basic,
-          child: Container(
-            decoration: BoxDecoration(
-              color: Colors.white,
-              borderRadius: BorderRadius.circular(12),
-              boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.04), blurRadius: 10, offset: const Offset(0, 4))],
-            ),
-            padding: const EdgeInsets.all(24.0),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  children: [
-                    Container(
-                      padding: const EdgeInsets.all(10),
-                      decoration: BoxDecoration(color: color.withOpacity(0.1), borderRadius: BorderRadius.circular(8)),
-                      child: Icon(icon, color: color, size: 24),
-                    ),
-                    const SizedBox(width: 16),
-                    Expanded(child: Text(title, style: const TextStyle(fontSize: 14, color: Color(0xFF666666)))),
-                  ],
-                ),
-                const SizedBox(height: 20),
-                Text(value, style: TextStyle(fontSize: 28, fontWeight: FontWeight.bold, color: color == Colors.orange ? Colors.orange.shade700 : const Color(0xFF1E392A))),
-              ],
-            ),
+  Widget _buildChannelCard(String title, String count, IconData icon, Color color) {
+    return Container(
+      padding: const EdgeInsets.all(24),
+      decoration: BoxDecoration(
+        color: AppColors.card,
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: AppColors.border),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Text(title, style: const TextStyle(fontWeight: FontWeight.w600, color: AppColors.secondaryText)),
+              Icon(icon, color: color, size: 20),
+            ],
           ),
-        ),
+          const SizedBox(height: 16),
+          Text(count, style: const TextStyle(fontSize: 32, fontWeight: FontWeight.bold, letterSpacing: -1)),
+        ],
       ),
     );
   }
+
+  Widget _buildGitHubFeedItem(String user, String action, String target, String time, {bool isSuccess = false, bool isSystem = false}) {
+    Color dotColor = isSystem ? AppColors.secondaryText : (isSuccess ? AppColors.primary : AppColors.information);
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 24.0),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Column(
+            children: [
+              Container(width: 12, height: 12, decoration: BoxDecoration(shape: BoxShape.circle, color: dotColor, border: Border.all(color: Colors.white, width: 2), boxShadow: [BoxShadow(color: dotColor.withOpacity(0.3), blurRadius: 4)])),
+              Container(width: 2, height: 40, color: AppColors.border), // connector
+            ],
+          ),
+          const SizedBox(width: 16),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                RichText(
+                  text: TextSpan(
+                    style: const TextStyle(color: AppColors.text, fontFamily: 'Inter', fontSize: 14),
+                    children: [
+                      TextSpan(text: user, style: const TextStyle(fontWeight: FontWeight.bold)),
+                      TextSpan(text: ' $action ', style: const TextStyle(color: AppColors.secondaryText)),
+                      TextSpan(text: target, style: const TextStyle(fontWeight: FontWeight.w600)),
+                    ]
+                  )
+                ),
+                const SizedBox(height: 4),
+                Text(time, style: const TextStyle(fontSize: 12, color: AppColors.secondaryText)),
+              ],
+            ),
+          )
+        ],
+      ),
+    );
+  }
+}
+
+class CircularGaugePainter extends CustomPainter {
+  final double progress;
+  final Color color;
+
+  CircularGaugePainter({required this.progress, required this.color});
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final center = Offset(size.width / 2, size.height / 2);
+    final radius = math.min(size.width / 2, size.height / 2);
+    
+    final bgPaint = Paint()
+      ..color = AppColors.border
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 16
+      ..strokeCap = StrokeCap.round;
+
+    final progressPaint = Paint()
+      ..color = color
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 16
+      ..strokeCap = StrokeCap.round;
+
+    const startAngle = math.pi * 0.75;
+    const sweepAngle = math.pi * 1.5;
+
+    canvas.drawArc(Rect.fromCircle(center: center, radius: radius), startAngle, sweepAngle, false, bgPaint);
+    canvas.drawArc(Rect.fromCircle(center: center, radius: radius), startAngle, sweepAngle * progress, false, progressPaint);
+  }
+
+  @override
+  bool shouldRepaint(covariant CustomPainter oldDelegate) => true;
 }

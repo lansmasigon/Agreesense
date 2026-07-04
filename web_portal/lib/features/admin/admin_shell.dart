@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../providers/auth_provider.dart';
+import '../../core/theme/app_colors.dart';
 
 class AdminShell extends ConsumerWidget {
   final Widget child;
@@ -49,22 +50,25 @@ class AdminShell extends ConsumerWidget {
       final isActive = selectedIndex == index && !disabled;
       return InkWell(
         onTap: disabled ? null : () => _onItemTapped(index, context),
-        child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+        hoverColor: AppColors.background.withOpacity(0.5),
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 200),
+          curve: Curves.easeOutQuart,
+          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
           decoration: BoxDecoration(
-            color: isActive ? const Color(0xFFe6f7ea) : Colors.transparent,
-            border: isActive ? const Border(left: BorderSide(color: Color(0xFF2da84e), width: 3)) : null,
+            color: isActive ? AppColors.accent.withOpacity(0.1) : Colors.transparent,
+            border: isActive ? const Border(left: BorderSide(color: AppColors.primary, width: 3)) : const Border(left: BorderSide(color: Colors.transparent, width: 3)),
           ),
           child: Row(
             children: [
-              Icon(icon, size: 18, color: disabled ? Colors.grey : isActive ? const Color(0xFF2da84e) : const Color(0xFF4a6b4a)),
-              const SizedBox(width: 10),
+              Icon(icon, size: 20, color: disabled ? AppColors.border : isActive ? AppColors.primary : AppColors.secondaryText),
+              const SizedBox(width: 12),
               Text(
                 title,
                 style: TextStyle(
-                  color: disabled ? Colors.grey : isActive ? const Color(0xFF1a2e1a) : const Color(0xFF4a6b4a),
-                  fontSize: 13,
-                  fontWeight: isActive ? FontWeight.w600 : FontWeight.w400,
+                  color: disabled ? AppColors.border : isActive ? AppColors.text : AppColors.secondaryText,
+                  fontSize: 14,
+                  fontWeight: isActive ? FontWeight.w600 : FontWeight.w500,
                 ),
               ),
             ],
@@ -75,182 +79,190 @@ class AdminShell extends ConsumerWidget {
 
     Widget buildNavSection(String title) {
       return Padding(
-        padding: const EdgeInsets.only(left: 16, right: 16, top: 12, bottom: 4),
+        padding: const EdgeInsets.only(left: 20, right: 20, top: 24, bottom: 8),
         child: Text(
           title.toUpperCase(),
           style: const TextStyle(
-            color: Color(0xFF8aaa8a),
-            fontSize: 10,
+            color: AppColors.secondaryText,
+            fontSize: 11,
             fontWeight: FontWeight.bold,
-            letterSpacing: 0.8,
+            letterSpacing: 1.2,
           ),
         ),
       );
     }
 
     return Scaffold(
-      body: Row(
-        children: [
-          // Sidebar
-          Container(
-            width: 228,
-            color: Colors.white,
-            child: Column(
-              children: [
-                // Brand
-                Container(
-                  padding: const EdgeInsets.all(16),
-                  decoration: const BoxDecoration(
-                    border: Border(bottom: BorderSide(color: Color(0x1F22783C))),
-                  ),
-                  child: Row(
-                    children: [
-                      Container(
-                        width: 30,
-                        height: 30,
-                        decoration: BoxDecoration(
-                          gradient: const LinearGradient(
-                            colors: [Color(0xFF2da84e), Color(0xFF1a8a6e)],
-                            begin: Alignment.topLeft,
-                            end: Alignment.bottomRight,
-                          ),
-                          borderRadius: BorderRadius.circular(8),
-                        ),
-                        child: const Icon(Icons.eco, color: Colors.white, size: 16),
-                      ),
-                      const SizedBox(width: 10),
-                      const Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text('AgriSense', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
-                          Text('MAO PORTAL', style: TextStyle(fontSize: 10, color: Color(0xFF8aaa8a), letterSpacing: 0.5)),
-                        ],
-                      ),
-                    ],
-                  ),
+      backgroundColor: AppColors.background,
+      body: Center(
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 1600),
+          child: Row(
+            children: [
+              // Sidebar
+              AnimatedContainer(
+                duration: const Duration(milliseconds: 300),
+                curve: Curves.easeOutBack,
+                width: 260,
+                decoration: const BoxDecoration(
+                  color: AppColors.card,
+                  border: Border(right: BorderSide(color: AppColors.border)),
                 ),
-                // Nav Items
-                Expanded(
-                  child: Consumer(
-                    builder: (context, ref, _) {
-                      final user = ref.watch(currentUserProvider);
-                      final userRole = user?['role'] as String?;
-                      
-                      return ListView(
-                        padding: const EdgeInsets.symmetric(vertical: 8),
-                        children: [
-                          buildNavSection('Overview'),
-                          buildNavItem(0, 'Dashboard', Icons.dashboard_outlined),
-                          
-                          buildNavSection('Governance'),
-                          buildNavItem(1, 'Validation queue', Icons.fact_check_outlined),
-                          buildNavItem(2, 'Calamity reports', Icons.warning_amber_outlined, disabled: userRole != 'mao'),
-                          
-                          buildNavSection('Analytics'),
-                          buildNavItem(3, 'Supply chain', Icons.analytics_outlined, disabled: userRole != 'mao'),
-                          
-                          buildNavSection('Admin'),
-                          buildNavItem(4, 'Reference data', Icons.dataset_outlined, disabled: userRole != 'mao'),
-                          buildNavItem(5, 'Reports', Icons.insert_chart_outlined, disabled: userRole != 'mao' && userRole != 'technician'),
-                        ],
-                      );
-                    }
-                  ),
-                ),
-                // User Profile Bottom
-                Consumer(
-                  builder: (context, ref, child) {
-                    final user = ref.watch(currentUserProvider);
-                    final fullName = user?['full_name'] ?? 'Admin User';
-                    final role = user?['role']?.toString().toUpperCase() ?? 'MAO';
-                    final initials = fullName.isNotEmpty ? fullName[0].toUpperCase() : 'U';
-
-                    return Container(
-                      padding: const EdgeInsets.all(16),
+                child: Column(
+                  children: [
+                    // Brand
+                    Container(
+                      height: 72,
+                      padding: const EdgeInsets.symmetric(horizontal: 20),
+                      alignment: Alignment.centerLeft,
                       decoration: const BoxDecoration(
-                        border: Border(top: BorderSide(color: Color(0x1F22783C))),
+                        border: Border(bottom: BorderSide(color: AppColors.border)),
                       ),
                       child: Row(
                         children: [
                           Container(
-                            width: 30,
-                            height: 30,
+                            width: 32,
+                            height: 32,
                             decoration: BoxDecoration(
-                              color: const Color(0xFFe6f7ea),
-                              shape: BoxShape.circle,
-                              border: Border.all(color: const Color(0x4D2DA84E)),
+                              color: AppColors.primary,
+                              borderRadius: BorderRadius.circular(8),
                             ),
-                            alignment: Alignment.center,
-                            child: Text(initials, style: const TextStyle(color: Color(0xFF2da84e), fontSize: 12, fontWeight: FontWeight.bold)),
+                            child: const Icon(Icons.dashboard, color: Colors.white, size: 18),
                           ),
-                          const SizedBox(width: 10),
-                          Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
+                          const SizedBox(width: 12),
+                          const Column(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text('MAO Analytics', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: AppColors.text)),
+                            ],
+                          ),
+                        ],
+                      ),
+                    ),
+                    // Nav Items
+                    Expanded(
+                      child: Consumer(
+                        builder: (context, ref, _) {
+                          final user = ref.watch(currentUserProvider);
+                          final userRole = user?['role'] as String?;
+                          
+                          return ListView(
+                            padding: const EdgeInsets.symmetric(vertical: 8),
+                            children: [
+                              buildNavSection('Overview'),
+                              buildNavItem(0, 'Dashboard', Icons.grid_view_rounded),
+                              
+                              buildNavSection('Workspace'),
+                              buildNavItem(1, 'Validation Queue', Icons.check_circle_outline_rounded),
+                              buildNavItem(2, 'Calamities', Icons.warning_amber_rounded, disabled: userRole != 'mao'),
+                              buildNavItem(3, 'Supply Chain', Icons.local_shipping_outlined, disabled: userRole != 'mao'),
+                              
+                              buildNavSection('Data'),
+                              buildNavItem(4, 'Reference Data', Icons.table_chart_outlined, disabled: userRole != 'mao'),
+                              buildNavItem(5, 'Reports', Icons.bar_chart_rounded, disabled: userRole != 'mao' && userRole != 'technician'),
+                            ],
+                          );
+                        }
+                      ),
+                    ),
+                    // User Profile Bottom
+                    Consumer(
+                      builder: (context, ref, child) {
+                        final user = ref.watch(currentUserProvider);
+                        final fullName = user?['full_name'] ?? 'Admin User';
+                        final role = user?['role']?.toString().toUpperCase() ?? 'MAO';
+                        final initials = fullName.isNotEmpty ? fullName[0].toUpperCase() : 'U';
+
+                        return Container(
+                          padding: const EdgeInsets.all(20),
+                          decoration: const BoxDecoration(
+                            border: Border(top: BorderSide(color: AppColors.border)),
+                          ),
+                          child: Row(
+                            children: [
+                              CircleAvatar(
+                                radius: 18,
+                                backgroundColor: AppColors.accent.withOpacity(0.2),
+                                child: Text(initials, style: const TextStyle(color: AppColors.primary, fontWeight: FontWeight.bold)),
+                              ),
+                              const SizedBox(width: 12),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(fullName, style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: AppColors.text)),
+                                    Text(role, style: const TextStyle(fontSize: 12, color: AppColors.secondaryText), overflow: TextOverflow.ellipsis),
+                                  ],
+                                ),
+                              ),
+                              IconButton(
+                                icon: const Icon(Icons.logout, size: 20, color: AppColors.secondaryText),
+                                onPressed: () {
+                                  ref.read(currentUserProvider.notifier).setUser(null);
+                                },
+                              )
+                            ],
+                          ),
+                        );
+                      }
+                    )
+                  ],
+                ),
+              ),
+              // Main content area
+              Expanded(
+                child: Column(
+                  children: [
+                    // Topbar
+                    Container(
+                      height: 72,
+                      padding: const EdgeInsets.symmetric(horizontal: 32),
+                      decoration: const BoxDecoration(
+                        color: AppColors.background,
+                        border: Border(bottom: BorderSide(color: AppColors.border)),
+                      ),
+                      child: Row(
+                        children: [
+                          const Spacer(),
+                          // Simplified search placeholder
+                          Container(
+                            width: 280,
+                            height: 40,
+                            padding: const EdgeInsets.symmetric(horizontal: 16),
+                            decoration: BoxDecoration(
+                              color: AppColors.card,
+                              borderRadius: BorderRadius.circular(20),
+                              border: Border.all(color: AppColors.border),
+                            ),
+                            child: const Row(
                               children: [
-                                Text(fullName, style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
-                                Text(role, style: const TextStyle(fontSize: 10, color: Color(0xFF4a6b4a)), overflow: TextOverflow.ellipsis),
+                                Icon(Icons.search, size: 18, color: AppColors.secondaryText),
+                                SizedBox(width: 12),
+                                Text('Search anything', style: TextStyle(fontSize: 14, color: AppColors.secondaryText)),
                               ],
                             ),
                           ),
+                          const SizedBox(width: 16),
                           IconButton(
-                            icon: const Icon(Icons.logout, size: 16, color: Color(0xFF8aaa8a)),
-                            onPressed: () {
-                              ref.read(currentUserProvider.notifier).setUser(null);
-                            },
+                            icon: const Icon(Icons.notifications_outlined, color: AppColors.secondaryText),
+                            onPressed: () {},
                           )
                         ],
                       ),
-                    );
-                  }
-                )
-              ],
-            ),
-          ),
-          const VerticalDivider(width: 1, thickness: 1, color: Color(0x1F22783C)),
-          // Main content area
-          Expanded(
-            child: Column(
-              children: [
-                // Topbar
-                Container(
-                  height: 56,
-                  padding: const EdgeInsets.symmetric(horizontal: 24),
-                  decoration: const BoxDecoration(
-                    color: Colors.white,
-                    border: Border(bottom: BorderSide(color: Color(0x1F22783C))),
-                  ),
-                  child: Row(
-                    children: [
-                      const Text('Municipal Dashboard', style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold)),
-                      const Spacer(),
-                      // Simplified search placeholder
-                      Container(
-                        width: 220,
-                        height: 32,
-                        padding: const EdgeInsets.symmetric(horizontal: 12),
-                        decoration: BoxDecoration(
-                          color: const Color(0xFFf4faf4),
-                          borderRadius: BorderRadius.circular(8),
-                          border: Border.all(color: const Color(0x1F22783C)),
-                        ),
-                        child: const Row(
-                          children: [
-                            Icon(Icons.search, size: 14, color: Color(0xFF8aaa8a)),
-                            SizedBox(width: 8),
-                            Text('Search...', style: TextStyle(fontSize: 12, color: Color(0xFF8aaa8a))),
-                          ],
-                        ),
-                      ),
-                    ],
-                  ),
+                    ),
+                    // Page Content
+                    Expanded(
+                      child: ClipRRect(
+                        child: child
+                      )
+                    ),
+                  ],
                 ),
-                // Page Content
-                Expanded(child: child),
-              ],
-            ),
+              ),
+            ],
           ),
-        ],
+        ),
       ),
     );
   }

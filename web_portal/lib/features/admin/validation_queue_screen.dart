@@ -2,15 +2,14 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../providers/auth_provider.dart';
 import '../../providers/admin_actions.dart';
+import '../../core/theme/app_colors.dart';
 
 final validationQueueProvider = FutureProvider.autoDispose<List<Map<String, dynamic>>>((ref) async {
   final supabase = ref.watch(supabaseClientProvider);
-  
   final res = await supabase
       .from('crop_declarations')
       .select('*, profiles(full_name)')
       .order('created_at', ascending: false);
-      
   return List<Map<String, dynamic>>.from(res as List);
 });
 
@@ -24,68 +23,17 @@ class ValidationQueueScreen extends ConsumerStatefulWidget {
 class _ValidationQueueScreenState extends ConsumerState<ValidationQueueScreen> {
   String _selectedStatus = 'All';
   final List<String> _statuses = ['All', 'pending', 'baw_approved', 'technician_verified', 'approved', 'rejected'];
+  Map<String, dynamic>? _selectedDeclaration;
 
   String _formatCropId(String id) {
     if (id.isEmpty) return id;
     return id[0].toUpperCase() + id.substring(1).replaceAll('_', ' ');
   }
 
-  Widget _buildStatusBadge(String status) {
-    Color bgColor;
-    Color textColor;
-    IconData icon;
-
-    switch (status.toLowerCase()) {
-      case 'pending':
-        bgColor = const Color(0xFFFFFBEB);
-        textColor = const Color(0xFFD97706);
-        icon = Icons.access_time_filled;
-        break;
-      case 'baw_approved':
-        bgColor = const Color(0xFFEFF6FF);
-        textColor = const Color(0xFF2563EB);
-        icon = Icons.shield;
-        break;
-      case 'technician_verified':
-        bgColor = const Color(0xFFFAF5FF);
-        textColor = const Color(0xFF9333EA);
-        icon = Icons.verified;
-        break;
-      case 'approved':
-        bgColor = const Color(0xFFF0FDF4);
-        textColor = const Color(0xFF16A34A);
-        icon = Icons.check_circle;
-        break;
-      case 'rejected':
-        bgColor = const Color(0xFFFEF2F2);
-        textColor = const Color(0xFFDC2626);
-        icon = Icons.cancel;
-        break;
-      default:
-        bgColor = const Color(0xFFF1F5F9);
-        textColor = const Color(0xFF64748B);
-        icon = Icons.info;
-    }
-
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-      decoration: BoxDecoration(
-        color: bgColor,
-        borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: textColor.withOpacity(0.2)),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(icon, size: 14, color: textColor),
-          const SizedBox(width: 6),
-          Text(
-            status.replaceAll('_', ' ').toUpperCase(),
-            style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: textColor),
-          ),
-        ],
-      ),
-    );
+  void _closeDrawer() {
+    setState(() {
+      _selectedDeclaration = null;
+    });
   }
 
   @override
@@ -95,217 +43,374 @@ class _ValidationQueueScreenState extends ConsumerState<ValidationQueueScreen> {
     final userRole = user?['role'] as String?;
 
     return Scaffold(
-      backgroundColor: const Color(0xFFF8FAFC),
-      appBar: AppBar(
-        title: const Text('Validation Queue', style: TextStyle(color: Color(0xFF1E293B), fontWeight: FontWeight.w600)),
-        backgroundColor: Colors.white,
-        elevation: 0,
-        iconTheme: const IconThemeData(color: Color(0xFF1E293B)),
-        actions: [
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 24.0),
-            child: Center(
-              child: Container(
-                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-                decoration: BoxDecoration(
-                  color: const Color(0xFFF1F5F9),
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: DropdownButtonHideUnderline(
-                  child: DropdownButton<String>(
-                    value: _selectedStatus,
-                    icon: const Icon(Icons.arrow_drop_down, color: Color(0xFF64748B)),
-                    style: const TextStyle(color: Color(0xFF1E293B), fontWeight: FontWeight.w500),
-                    items: _statuses.map((status) {
-                      return DropdownMenuItem(
-                        value: status,
-                        child: Text(status.toUpperCase()),
-                      );
-                    }).toList(),
-                    onChanged: (value) {
-                      if (value != null) {
-                        setState(() {
-                          _selectedStatus = value;
-                        });
-                      }
-                    },
-                  ),
-                ),
-              ),
-            ),
-          )
-        ],
-      ),
+      backgroundColor: AppColors.background,
       body: declarationsAsync.when(
         data: (declarations) {
           final filteredDeclarations = _selectedStatus == 'All'
               ? declarations
               : declarations.where((d) => d['status'] == _selectedStatus).toList();
 
-          if (filteredDeclarations.isEmpty) {
-            return const Center(child: Text('No declarations found.', style: TextStyle(color: Color(0xFF64748B))));
-          }
-
-          return SingleChildScrollView(
-            padding: const EdgeInsets.all(24.0),
-            child: Container(
-              decoration: BoxDecoration(
-                color: Colors.white,
-                borderRadius: BorderRadius.circular(16),
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.black.withOpacity(0.03),
-                    blurRadius: 20,
-                    offset: const Offset(0, 4),
-                  )
-                ],
-              ),
-              child: ListView.separated(
-                shrinkWrap: true,
-                physics: const NeverScrollableScrollPhysics(),
-                itemCount: filteredDeclarations.length,
-                separatorBuilder: (context, index) => const Divider(height: 1, color: Color(0xFFF1F5F9)),
-                itemBuilder: (context, index) {
-                  final declaration = filteredDeclarations[index];
-                  final farmerName = declaration['profiles']?['full_name'] ?? 'Unknown Farmer';
-                  final cropId = declaration['crop_id'] as String? ?? 'unknown';
-                  final cropName = _formatCropId(cropId);
-                  final status = declaration['status'] as String? ?? 'pending';
-
-                  final canReview = (userRole == 'baw' && status == 'pending') ||
-                                    (userRole == 'technician' && status == 'baw_approved') ||
-                                    (userRole == 'mao' && status == 'technician_verified');
-                  
-                  return Padding(
-                    padding: const EdgeInsets.all(24.0),
-                    child: Row(
-                      crossAxisAlignment: CrossAxisAlignment.center,
-                      children: [
-                        Container(
-                          width: 48,
-                          height: 48,
-                          decoration: BoxDecoration(
-                            color: const Color(0xFF3B82F6).withOpacity(0.1),
-                            borderRadius: BorderRadius.circular(12),
-                          ),
-                          child: const Icon(Icons.assignment_turned_in, color: Color(0xFF3B82F6)),
-                        ),
-                        const SizedBox(width: 16),
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text('$cropName - $farmerName', style: const TextStyle(fontWeight: FontWeight.w600, color: Color(0xFF1E293B))),
-                              const SizedBox(height: 4),
-                              Text('Area: ${declaration['area_ha']} ha', style: const TextStyle(fontSize: 13, color: Color(0xFF64748B))),
-                            ],
-                          ),
-                        ),
-                        _buildStatusBadge(status),
-                        if (canReview) ...[
-                          const SizedBox(width: 16),
-                          ElevatedButton(
-                            onPressed: () {
-                              _showReviewDialog(context, declaration, userRole);
-                            },
-                            style: ElevatedButton.styleFrom(
-                              backgroundColor: const Color(0xFF3B82F6),
-                              elevation: 0,
-                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                            ),
-                            child: const Text('Review', style: TextStyle(color: Colors.white)),
-                          )
+          return Row(
+            children: [
+              // Left: Queue List
+              Expanded(
+                flex: 3,
+                child: Column(
+                  children: [
+                    Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 32.0, vertical: 24),
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          const Text('Validation Queue', style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: AppColors.text, letterSpacing: -0.5)),
+                          _buildFilterDropdown(),
                         ],
-                      ],
+                      ),
                     ),
-                  );
-                },
+                    Expanded(
+                      child: filteredDeclarations.isEmpty
+                        ? const Center(child: Text('No declarations found.', style: TextStyle(color: AppColors.secondaryText)))
+                        : ListView.builder(
+                            padding: const EdgeInsets.symmetric(horizontal: 32),
+                            itemCount: filteredDeclarations.length,
+                            itemBuilder: (context, index) {
+                              final declaration = filteredDeclarations[index];
+                              final isSelected = _selectedDeclaration?['id'] == declaration['id'];
+                              return _buildQueueCard(declaration, isSelected);
+                            },
+                          ),
+                    ),
+                  ],
+                ),
               ),
-            ),
+
+              // Right: Drawer Workflow
+              if (_selectedDeclaration != null)
+                AnimatedContainer(
+                  duration: const Duration(milliseconds: 300),
+                  curve: Curves.easeOutQuart,
+                  width: 500,
+                  decoration: const BoxDecoration(
+                    color: AppColors.card,
+                    border: Border(left: BorderSide(color: AppColors.border)),
+                  ),
+                  child: _buildWorkflowDrawer(_selectedDeclaration!, userRole),
+                )
+            ],
           );
         },
-        loading: () => const Center(child: CircularProgressIndicator()),
-        error: (err, stack) => Center(child: Text('Error: $err', style: const TextStyle(color: Colors.red))),
+        loading: () => const Center(child: CircularProgressIndicator(color: AppColors.primary)),
+        error: (err, stack) => Center(child: Text('Error: $err', style: const TextStyle(color: AppColors.danger))),
       ),
     );
   }
 
-  void _showReviewDialog(BuildContext context, Map<String, dynamic> declaration, String? userRole) {
-    final TextEditingController remarksController = TextEditingController();
-    final status = declaration['status'] as String;
-    final id = declaration['id'] as String;
+  Widget _buildFilterDropdown() {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+      decoration: BoxDecoration(
+        color: AppColors.card,
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: AppColors.border),
+      ),
+      child: DropdownButtonHideUnderline(
+        child: DropdownButton<String>(
+          value: _selectedStatus,
+          isDense: true,
+          icon: const Icon(Icons.keyboard_arrow_down_rounded, color: AppColors.secondaryText),
+          items: _statuses.map((status) {
+            return DropdownMenuItem(
+              value: status,
+              child: Text(status.replaceAll('_', ' ').toUpperCase(), style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: AppColors.text)),
+            );
+          }).toList(),
+          onChanged: (value) {
+            if (value != null) {
+              setState(() => _selectedStatus = value);
+              _closeDrawer();
+            }
+          },
+        ),
+      ),
+    );
+  }
+
+  Widget _buildQueueCard(Map<String, dynamic> declaration, bool isSelected) {
     final farmerName = declaration['profiles']?['full_name'] ?? 'Unknown Farmer';
-    final cropId = declaration['crop_id'] as String? ?? 'unknown';
-    final cropName = _formatCropId(cropId);
+    final cropName = _formatCropId(declaration['crop_id'] as String? ?? '');
+    final area = declaration['area_ha'] ?? 0;
+    final status = declaration['status'] as String? ?? 'pending';
+
+    return GestureDetector(
+      onTap: () {
+        setState(() => _selectedDeclaration = declaration);
+      },
+      child: Container(
+        margin: const EdgeInsets.only(bottom: 12),
+        padding: const EdgeInsets.all(20),
+        decoration: BoxDecoration(
+          color: AppColors.card,
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: isSelected ? AppColors.primary : AppColors.border, width: isSelected ? 2 : 1),
+          boxShadow: isSelected ? [BoxShadow(color: AppColors.primary.withOpacity(0.1), blurRadius: 16, offset: const Offset(0, 4))] : [],
+        ),
+        child: Row(
+          children: [
+            Container(
+              width: 48,
+              height: 48,
+              decoration: BoxDecoration(color: AppColors.background, borderRadius: BorderRadius.circular(12)),
+              child: const Icon(Icons.grass_rounded, color: AppColors.primary),
+            ),
+            const SizedBox(width: 16),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(cropName, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: AppColors.text)),
+                  const SizedBox(height: 4),
+                  Text('$farmerName • $area ha', style: const TextStyle(color: AppColors.secondaryText, fontSize: 13)),
+                ],
+              ),
+            ),
+            const SizedBox(width: 16),
+            _buildStatusChip(status),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildStatusChip(String status) {
+    Color color;
+    switch (status) {
+      case 'pending': color = AppColors.warning; break;
+      case 'baw_approved': color = AppColors.information; break;
+      case 'technician_verified': color = AppColors.accent; break;
+      case 'approved': color = AppColors.primary; break;
+      case 'rejected': color = AppColors.danger; break;
+      default: color = AppColors.secondaryText;
+    }
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+      decoration: BoxDecoration(
+        color: color.withOpacity(0.1),
+        borderRadius: BorderRadius.circular(20),
+      ),
+      child: Text(
+        status.replaceAll('_', ' ').toUpperCase(),
+        style: TextStyle(color: color, fontSize: 11, fontWeight: FontWeight.bold, letterSpacing: 0.5),
+      ),
+    );
+  }
+
+  Widget _buildWorkflowDrawer(Map<String, dynamic> declaration, String? userRole) {
+    final status = declaration['status'] as String? ?? 'pending';
+    final id = declaration['id'] as String;
     
-    showDialog(
-      context: context,
-      builder: (context) {
-        return AlertDialog(
-          title: Text('Review Declaration $id'),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
+    return Column(
+      children: [
+        Padding(
+          padding: const EdgeInsets.all(24.0),
+          child: Row(
+            children: [
+              IconButton(icon: const Icon(Icons.close), onPressed: _closeDrawer),
+              const SizedBox(width: 16),
+              const Text('Review Workflow', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+            ],
+          ),
+        ),
+        const Divider(height: 1, color: AppColors.border),
+        Expanded(
+          child: Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text('Farmer: $farmerName'),
-              Text('Crop: $cropName'),
-              Text('Area Planted: ${declaration['area_ha']} ha'),
-              Text('Status: $status'),
-              const SizedBox(height: 16),
-              const Text('Remarks:'),
-              TextField(
-                controller: remarksController,
-                decoration: const InputDecoration(
-                  border: OutlineInputBorder(),
-                  hintText: 'Enter remarks here...',
+              // LEFT: Declaration Info
+              Expanded(
+                flex: 1,
+                child: SingleChildScrollView(
+                  padding: const EdgeInsets.all(32),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text('DECLARATION', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: AppColors.secondaryText, letterSpacing: 1.2)),
+                      const SizedBox(height: 16),
+                      _buildInfoRow('Farmer', declaration['profiles']?['full_name'] ?? 'Unknown'),
+                      _buildInfoRow('Crop', _formatCropId(declaration['crop_id'] as String? ?? '')),
+                      _buildInfoRow('Area', '${declaration['area_ha']} ha'),
+                      _buildInfoRow('Barangay', declaration['barangay'] ?? 'N/A'),
+                      const SizedBox(height: 32),
+                      const Text('DOCUMENTS', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: AppColors.secondaryText, letterSpacing: 1.2)),
+                      const SizedBox(height: 16),
+                      Container(
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(border: Border.all(color: AppColors.border), borderRadius: BorderRadius.circular(8)),
+                        child: const Row(
+                          children: [
+                            Icon(Icons.insert_drive_file_outlined, color: AppColors.primary, size: 16),
+                            SizedBox(width: 8),
+                            Text('Land_Title.pdf', style: TextStyle(fontSize: 13, color: AppColors.text)),
+                          ],
+                        ),
+                      )
+                    ],
+                  ),
+                ),
+              ),
+              const VerticalDivider(width: 1, color: AppColors.border),
+              // RIGHT: Approval Timeline
+              Expanded(
+                flex: 1,
+                child: Container(
+                  color: AppColors.background,
+                  padding: const EdgeInsets.all(32),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text('TIMELINE', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: AppColors.secondaryText, letterSpacing: 1.2)),
+                      const SizedBox(height: 24),
+                      _buildTimelineNode('Pending', isActive: status == 'pending', isPast: ['baw_approved', 'technician_verified', 'approved'].contains(status)),
+                      _buildTimelineNode('BAW Review', isActive: status == 'baw_approved', isPast: ['technician_verified', 'approved'].contains(status)),
+                      _buildTimelineNode('Technician Review', isActive: status == 'technician_verified', isPast: status == 'approved'),
+                      _buildTimelineNode('MAO Approval', isActive: status == 'approved', isPast: false, isLast: true),
+                      
+                      const Spacer(),
+                      
+                      if (_canReview(status, userRole)) ...[
+                        const TextField(
+                          decoration: InputDecoration(
+                            hintText: 'Add remarks...',
+                            filled: true,
+                            fillColor: AppColors.card,
+                            border: OutlineInputBorder(borderSide: BorderSide.none, borderRadius: BorderRadius.all(Radius.circular(12))),
+                            contentPadding: EdgeInsets.all(16)
+                          ),
+                          maxLines: 2,
+                        ),
+                        const SizedBox(height: 16),
+                        Row(
+                          children: [
+                            Expanded(
+                              child: OutlinedButton(
+                                onPressed: () => _updateStatus(id, 'rejected'),
+                                style: OutlinedButton.styleFrom(
+                                  padding: const EdgeInsets.symmetric(vertical: 16),
+                                  foregroundColor: AppColors.danger,
+                                  side: const BorderSide(color: AppColors.danger),
+                                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12))
+                                ),
+                                child: const Text('Reject'),
+                              ),
+                            ),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: ElevatedButton(
+                                onPressed: () => _updateStatus(id, _getNextStatus(status)),
+                                style: ElevatedButton.styleFrom(
+                                  padding: const EdgeInsets.symmetric(vertical: 16),
+                                  backgroundColor: AppColors.primary,
+                                  elevation: 0,
+                                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12))
+                                ),
+                                child: const Text('Approve', style: TextStyle(color: Colors.white)),
+                              ),
+                            ),
+                          ],
+                        )
+                      ] else if (status == 'rejected') ...[
+                         Container(
+                           padding: const EdgeInsets.all(16),
+                           decoration: BoxDecoration(color: AppColors.danger.withOpacity(0.1), borderRadius: BorderRadius.circular(12)),
+                           child: const Row(children: [Icon(Icons.cancel, color: AppColors.danger), SizedBox(width: 8), Text('Declaration Rejected', style: TextStyle(color: AppColors.danger, fontWeight: FontWeight.bold))]),
+                         )
+                      ] else if (status == 'approved') ...[
+                         Container(
+                           padding: const EdgeInsets.all(16),
+                           decoration: BoxDecoration(color: AppColors.primary.withOpacity(0.1), borderRadius: BorderRadius.circular(12)),
+                           child: const Row(children: [Icon(Icons.check_circle, color: AppColors.primary), SizedBox(width: 8), Text('Workflow Completed', style: TextStyle(color: AppColors.primary, fontWeight: FontWeight.bold))]),
+                         )
+                      ]
+                    ],
+                  ),
                 ),
               ),
             ],
           ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.of(context).pop(),
-              child: const Text('Cancel'),
-            ),
-            if (userRole == 'baw' && status == 'pending')
-              ElevatedButton(
-                onPressed: () async {
-                  await ref.read(supabaseClientProvider).from('crop_declarations').update({'status': 'baw_approved'}).eq('id', id);
-                  ref.invalidate(validationQueueProvider);
-                  if (context.mounted) Navigator.of(context).pop();
-                },
-                child: const Text('BAW Approve'),
-              ),
-            if (userRole == 'technician' && status == 'baw_approved')
-              ElevatedButton(
-                onPressed: () async {
-                  await ref.read(supabaseClientProvider).from('crop_declarations').update({'status': 'technician_verified'}).eq('id', id);
-                  ref.invalidate(validationQueueProvider);
-                  if (context.mounted) Navigator.of(context).pop();
-                },
-                child: const Text('Verify'),
-              ),
-            if (userRole == 'mao' && status == 'technician_verified')
-              ElevatedButton(
-                onPressed: () async {
-                  await ref.read(supabaseClientProvider).from('crop_declarations').update({'status': 'approved'}).eq('id', id);
-                  ref.invalidate(validationQueueProvider);
-                  if (context.mounted) Navigator.of(context).pop();
-                },
-                child: const Text('Approve'),
-              ),
-            ElevatedButton(
-              onPressed: () async {
-                await ref.read(supabaseClientProvider).from('crop_declarations').update({'status': 'rejected'}).eq('id', id);
-                ref.invalidate(validationQueueProvider);
-                if (context.mounted) Navigator.of(context).pop();
-              },
-              style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
-              child: const Text('Reject', style: TextStyle(color: Colors.white)),
-            ),
-          ],
-        );
-      },
+        ),
+      ],
     );
+  }
+
+  Widget _buildInfoRow(String label, String value) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 16.0),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(label, style: const TextStyle(fontSize: 12, color: AppColors.secondaryText)),
+          const SizedBox(height: 4),
+          Text(value, style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w600, color: AppColors.text)),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildTimelineNode(String title, {required bool isActive, required bool isPast, bool isLast = false}) {
+    final color = isPast ? AppColors.primary : (isActive ? AppColors.accent : AppColors.border);
+    return IntrinsicHeight(
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Column(
+            children: [
+              Container(
+                width: 16,
+                height: 16,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  color: isActive ? color : Colors.transparent,
+                  border: Border.all(color: color, width: 2),
+                  boxShadow: isActive ? [BoxShadow(color: color.withOpacity(0.5), blurRadius: 8, spreadRadius: 2)] : [],
+                ),
+              ),
+              if (!isLast)
+                Expanded(child: Container(width: 2, color: isPast ? AppColors.primary : AppColors.border)),
+            ],
+          ),
+          const SizedBox(width: 16),
+          Padding(
+            padding: const EdgeInsets.only(bottom: 32.0),
+            child: Text(
+              title,
+              style: TextStyle(
+                fontSize: 14,
+                fontWeight: isActive ? FontWeight.bold : FontWeight.w500,
+                color: (isActive || isPast) ? AppColors.text : AppColors.secondaryText,
+              ),
+            ),
+          )
+        ],
+      ),
+    );
+  }
+
+  bool _canReview(String status, String? role) {
+    if (role == 'baw' && status == 'pending') return true;
+    if (role == 'technician' && status == 'baw_approved') return true;
+    if (role == 'mao' && status == 'technician_verified') return true;
+    return false;
+  }
+
+  String _getNextStatus(String current) {
+    if (current == 'pending') return 'baw_approved';
+    if (current == 'baw_approved') return 'technician_verified';
+    if (current == 'technician_verified') return 'approved';
+    return current;
+  }
+
+  Future<void> _updateStatus(String id, String newStatus) async {
+    await ref.read(supabaseClientProvider).from('crop_declarations').update({'status': newStatus}).eq('id', id);
+    ref.invalidate(validationQueueProvider);
+    _closeDrawer();
   }
 }
