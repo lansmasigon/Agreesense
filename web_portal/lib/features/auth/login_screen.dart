@@ -1,9 +1,8 @@
+import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import '../../providers/auth_provider.dart';
-import '../../core/theme/app_colors.dart';
-import 'dart:math' as math;
 
 class LoginScreen extends ConsumerStatefulWidget {
   const LoginScreen({super.key});
@@ -17,22 +16,35 @@ class _LoginScreenState extends ConsumerState<LoginScreen> with SingleTickerProv
   final _passwordController = TextEditingController();
   bool _isLoading = false;
   String? _errorMessage;
-  bool _isLoginMode = true;
-  String _selectedRole = 'MAO';
-
-  late AnimationController _bgController;
-
-  final List<String> _roles = ['MAO', 'BAW', 'Technician'];
+  bool _obscurePassword = true;
+  bool _rememberMe = false;
+  
+  late AnimationController _fadeController;
+  late Animation<double> _fadeAnimation;
+  late Animation<Offset> _slideAnimation;
 
   @override
   void initState() {
     super.initState();
-    _bgController = AnimationController(vsync: this, duration: const Duration(seconds: 40))..repeat();
+    _fadeController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 1200),
+    );
+    
+    _fadeAnimation = Tween<double>(begin: 0.0, end: 1.0).animate(
+      CurvedAnimation(parent: _fadeController, curve: Curves.easeOut),
+    );
+    
+    _slideAnimation = Tween<Offset>(begin: const Offset(0, 0.1), end: Offset.zero).animate(
+      CurvedAnimation(parent: _fadeController, curve: Curves.easeOutCubic),
+    );
+    
+    _fadeController.forward();
   }
 
   @override
   void dispose() {
-    _bgController.dispose();
+    _fadeController.dispose();
     _emailController.dispose();
     _passwordController.dispose();
     super.dispose();
@@ -47,41 +59,17 @@ class _LoginScreenState extends ConsumerState<LoginScreen> with SingleTickerProv
     try {
       final supabase = ref.read(supabaseClientProvider);
       
-      if (_isLoginMode) {
-        final response = await supabase
-            .from('profiles')
-            .select()
-            .eq('email', _emailController.text.trim())
-            .eq('password', _passwordController.text.trim())
-            .maybeSingle();
+      final response = await supabase
+          .from('profiles')
+          .select()
+          .eq('email', _emailController.text.trim())
+          .eq('password', _passwordController.text.trim())
+          .maybeSingle();
 
-        if (response == null) {
-          throw Exception('Invalid credentials or unauthorized access.');
-        }
-        ref.read(currentUserProvider.notifier).setUser(response);
-      } else {
-        final email = _emailController.text.trim();
-        final password = _passwordController.text.trim();
-        
-        final exists = await supabase
-            .from('profiles')
-            .select()
-            .eq('email', email)
-            .maybeSingle();
-            
-        if (exists != null) {
-          throw Exception('Terminal access for this email already exists.');
-        }
-
-        final response = await supabase.from('profiles').insert({
-          'email': email,
-          'password': password,
-          'role': _selectedRole.toLowerCase(),
-          'full_name': email.split('@')[0], 
-        }).select().single();
-
-        ref.read(currentUserProvider.notifier).setUser(response);
+      if (response == null) {
+        throw Exception('Invalid credentials or unauthorized access.');
       }
+      ref.read(currentUserProvider.notifier).setUser(response);
       
       if (mounted) {
         context.go('/');
@@ -101,220 +89,108 @@ class _LoginScreenState extends ConsumerState<LoginScreen> with SingleTickerProv
 
   @override
   Widget build(BuildContext context) {
+    final size = MediaQuery.of(context).size;
+    final isMobile = size.width < 900;
+
     return Scaffold(
-      backgroundColor: AppColors.background,
-      body: Row(
+      body: Stack(
         children: [
-          // LEFT: Bloomberg Terminal / Animated Satellite Style
-          Expanded(
-            flex: 5,
+          // Background Gradient (Image removed as requested)
+          Positioned.fill(
             child: Container(
-              clipBehavior: Clip.antiAlias,
               decoration: const BoxDecoration(
-                color: Color(0xFF0F172A), // Dark slate
-              ),
-              child: Stack(
-                children: [
-                  // Animated background map simulation
-                  AnimatedBuilder(
-                    animation: _bgController,
-                    builder: (context, child) {
-                      return Transform.translate(
-                        offset: Offset(math.sin(_bgController.value * 2 * math.pi) * 20, math.cos(_bgController.value * 2 * math.pi) * 20),
-                        child: Transform.scale(
-                          scale: 1.1,
-                          child: Opacity(
-                            opacity: 0.15,
-                            child: Image.network(
-                              'https://images.unsplash.com/photo-1581578731548-c64695cc6952?q=80&w=2000&auto=format&fit=crop',
-                              fit: BoxFit.cover,
-                              width: double.infinity,
-                              height: double.infinity,
-                            ),
-                          ),
-                        ),
-                      );
-                    }
-                  ),
-                  // Grid overlay
-                  CustomPaint(
-                    size: Size.infinite,
-                    painter: GridPainter(),
-                  ),
-                  // Content
-                  Padding(
-                    padding: const EdgeInsets.all(64.0),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        const Icon(Icons.eco_rounded, color: AppColors.accent, size: 48),
-                        const SizedBox(height: 24),
-                        const Text('AGRISENSE', style: TextStyle(color: Colors.white, fontSize: 14, letterSpacing: 8, fontWeight: FontWeight.w600)),
-                        const SizedBox(height: 8),
-                        const Text('MUNICIPAL\nCOMMAND\nCENTER', style: TextStyle(color: Colors.white, fontSize: 56, height: 1.1, fontWeight: FontWeight.bold, letterSpacing: -2)),
-                        const Spacer(),
-                        Row(
-                          children: [
-                            _buildTerminalStat('ACTIVE NODES', '1,245', AppColors.accent),
-                            const SizedBox(width: 48),
-                            _buildTerminalStat('SYSTEM HEALTH', '99.9%', AppColors.information),
-                            const SizedBox(width: 48),
-                            _buildTerminalStat('LATEST SYNC', '0.4s ago', AppColors.warning),
-                          ],
-                        )
-                      ],
-                    ),
-                  )
-                ],
+                gradient: LinearGradient(
+                  begin: Alignment.topCenter,
+                  end: Alignment.bottomCenter,
+                  colors: [
+                    Color(0xFF0D4720),
+                    Color(0xFF082E14),
+                  ],
+                ),
               ),
             ),
           ),
           
-          // RIGHT: Login Form
-          Expanded(
-            flex: 4,
-            child: Container(
-              color: Colors.white,
-              padding: EdgeInsets.symmetric(horizontal: MediaQuery.of(context).size.width * 0.05),
-              child: Center(
-                child: ConstrainedBox(
-                  constraints: const BoxConstraints(maxWidth: 420),
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
+          // Content
+          Positioned.fill(
+            child: Column(
+              children: [
+                // Header
+                Padding(
+                  padding: const EdgeInsets.all(32.0),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      // Government Seal Placeholder
-                      Align(
-                        alignment: Alignment.centerLeft,
-                        child: Container(
-                          width: 48,
-                          height: 48,
-                          decoration: BoxDecoration(
-                            color: AppColors.background,
-                            shape: BoxShape.circle,
-                            border: Border.all(color: AppColors.border),
-                          ),
-                          child: const Icon(Icons.account_balance, color: AppColors.primary),
-                        ),
-                      ),
-                      const SizedBox(height: 32),
-                      Text(
-                        _isLoginMode ? 'Welcome Back' : 'Initialize Terminal',
-                        style: const TextStyle(fontSize: 32, fontWeight: FontWeight.bold, letterSpacing: -1, color: AppColors.text),
-                      ),
-                      const SizedBox(height: 8),
-                      Text(
-                        _isLoginMode ? 'Enter your credentials to access the command center.' : 'Register a new administrative node.',
-                        style: const TextStyle(color: AppColors.secondaryText, fontSize: 15),
-                      ),
-                      const SizedBox(height: 48),
-                      
-                      const Text('Email Address', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: AppColors.text)),
-                      const SizedBox(height: 8),
-                      TextField(
-                        controller: _emailController,
-                        style: const TextStyle(fontSize: 15),
-                        decoration: InputDecoration(
-                          hintText: 'name@municipality.gov.ph',
-                          hintStyle: const TextStyle(color: AppColors.border),
-                          filled: true,
-                          fillColor: AppColors.background,
-                          border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide.none),
-                          focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: const BorderSide(color: AppColors.primary, width: 2)),
-                        ),
-                        keyboardType: TextInputType.emailAddress,
-                      ),
-                      const SizedBox(height: 24),
-                      
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          const Text('Password', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: AppColors.text)),
-                          if (_isLoginMode)
-                            TextButton(onPressed: (){}, child: const Text('Forgot Password?', style: TextStyle(fontSize: 13, color: AppColors.primary, fontWeight: FontWeight.w600)))
+                          const Row(
+                            children: [
+                              Text('🌱', style: TextStyle(fontSize: 28)),
+                              SizedBox(width: 8),
+                              Text(
+                                'AGRISENSE',
+                                style: TextStyle(
+                                  fontFamily: 'Sora',
+                                  fontSize: 24,
+                                  fontWeight: FontWeight.w800,
+                                  color: Colors.white,
+                                  letterSpacing: 2,
+                                ),
+                              ),
+                            ],
+                          ),
                         ],
                       ),
-                      if (!_isLoginMode) const SizedBox(height: 8),
-                      TextField(
-                        controller: _passwordController,
-                        style: const TextStyle(fontSize: 15),
-                        decoration: InputDecoration(
-                          hintText: '••••••••',
-                          hintStyle: const TextStyle(color: AppColors.border),
-                          filled: true,
-                          fillColor: AppColors.background,
-                          border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide.none),
-                          focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: const BorderSide(color: AppColors.primary, width: 2)),
-                        ),
-                        obscureText: true,
-                      ),
-                      
-                      if (!_isLoginMode) ...[
-                        const SizedBox(height: 24),
-                        const Text('Access Level', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: AppColors.text)),
-                        const SizedBox(height: 8),
-                        DropdownButtonFormField<String>(
-                          value: _selectedRole,
-                          decoration: InputDecoration(
-                            filled: true,
-                            fillColor: AppColors.background,
-                            border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide.none),
-                            focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: const BorderSide(color: AppColors.primary, width: 2)),
-                          ),
-                          items: _roles.map((role) {
-                            return DropdownMenuItem(value: role, child: Text(role));
-                          }).toList(),
-                          onChanged: (value) {
-                            if (value != null) setState(() => _selectedRole = value);
-                          },
-                        ),
-                      ],
-                      
-                      if (_errorMessage != null) ...[
-                        const SizedBox(height: 24),
-                        Container(
-                          padding: const EdgeInsets.all(12),
-                          decoration: BoxDecoration(color: AppColors.danger.withOpacity(0.1), borderRadius: BorderRadius.circular(8)),
-                          child: Text(_errorMessage!, style: const TextStyle(color: AppColors.danger, fontSize: 13, fontWeight: FontWeight.w500)),
-                        ),
-                      ],
-                      
-                      const SizedBox(height: 32),
-                      ElevatedButton(
-                        onPressed: _isLoading ? null : _submit,
-                        style: ElevatedButton.styleFrom(
-                          padding: const EdgeInsets.all(20),
-                          backgroundColor: AppColors.primary,
-                          elevation: 0,
-                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                        ),
-                        child: _isLoading
-                            ? const SizedBox(height: 20, width: 20, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2))
-                            : Text(_isLoginMode ? 'Login to Terminal' : 'Initialize Node', style: const TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold)),
-                      ),
-                      
-                      const SizedBox(height: 24),
-                      Center(
-                        child: TextButton(
-                          onPressed: () {
-                            setState(() {
-                              _isLoginMode = !_isLoginMode;
-                              _errorMessage = null;
-                            });
-                          },
-                          child: Text(
-                            _isLoginMode ? 'Request Terminal Access' : 'Return to Login',
-                            style: const TextStyle(color: AppColors.secondaryText, fontSize: 14),
-                          ),
-                        ),
-                      ),
-                      
-                      const SizedBox(height: 48),
-                      const Center(child: Text('v2.4.0-stable', style: TextStyle(color: AppColors.border, fontSize: 12, fontFamily: 'monospace'))),
                     ],
                   ),
                 ),
-              ),
+                
+                // Main Content
+                Expanded(
+                  child: isMobile 
+                      ? Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Padding(
+                              padding: const EdgeInsets.symmetric(horizontal: 24),
+                              child: _buildHeroSection(isMobile: true),
+                            ),
+                            const SizedBox(height: 48),
+                            Padding(
+                              padding: const EdgeInsets.symmetric(horizontal: 24),
+                              child: _buildLoginCard(),
+                            ),
+                          ],
+                        )
+                      : Row(
+                          children: [
+                            Expanded(
+                              flex: 5,
+                              child: Center(
+                                child: Padding(
+                                  padding: const EdgeInsets.symmetric(horizontal: 64),
+                                  child: Align(
+                                    alignment: Alignment.centerLeft,
+                                    child: _buildHeroSection(isMobile: false),
+                                  ),
+                                ),
+                              ),
+                            ),
+                            Expanded(
+                              flex: 4,
+                              child: Center(
+                                child: Padding(
+                                  padding: const EdgeInsets.symmetric(horizontal: 48),
+                                  child: _buildLoginCard(),
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                ),
+              ],
             ),
           ),
         ],
@@ -322,33 +198,306 @@ class _LoginScreenState extends ConsumerState<LoginScreen> with SingleTickerProv
     );
   }
 
-  Widget _buildTerminalStat(String label, String value, Color color) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(label, style: const TextStyle(color: Colors.white54, fontSize: 11, letterSpacing: 1.5, fontWeight: FontWeight.w600)),
-        const SizedBox(height: 4),
-        Text(value, style: TextStyle(color: color, fontSize: 24, fontWeight: FontWeight.bold, fontFamily: 'monospace')),
-      ],
+  Widget _buildHeroSection({required bool isMobile}) {
+    return FadeTransition(
+      opacity: _fadeAnimation,
+      child: SlideTransition(
+        position: _slideAnimation,
+        child: Column(
+          crossAxisAlignment: isMobile ? CrossAxisAlignment.center : CrossAxisAlignment.start,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(
+              'Smarter Farming Starts Here',
+              style: TextStyle(
+                fontFamily: 'Sora',
+                fontWeight: FontWeight.w800,
+                fontSize: isMobile ? 36 : 56,
+                color: Colors.white,
+                height: 1.1,
+                letterSpacing: -1,
+              ),
+              textAlign: isMobile ? TextAlign.center : TextAlign.left,
+            ),
+            const SizedBox(height: 24),
+            Text(
+              'Empowering farmers and agricultural agencies with intelligent crop recommendations, calamity monitoring, supply forecasting, and data-driven decisions.',
+              style: TextStyle(
+                fontFamily: 'Inter',
+                fontSize: isMobile ? 16 : 18,
+                color: Colors.white.withOpacity(0.9),
+                height: 1.5,
+              ),
+              textAlign: isMobile ? TextAlign.center : TextAlign.left,
+            ),
+            const SizedBox(height: 40),
+            _buildFeatureList(isMobile: isMobile),
+          ],
+        ),
+      ),
     );
   }
-}
 
-class GridPainter extends CustomPainter {
-  @override
-  void paint(Canvas canvas, Size size) {
-    final paint = Paint()
-      ..color = Colors.white.withOpacity(0.03)
-      ..strokeWidth = 1;
-      
-    for (double i = 0; i < size.width; i += 40) {
-      canvas.drawLine(Offset(i, 0), Offset(i, size.height), paint);
-    }
-    for (double i = 0; i < size.height; i += 40) {
-      canvas.drawLine(Offset(0, i), Offset(size.width, i), paint);
-    }
+  Widget _buildFeatureList({required bool isMobile}) {
+    final features = [
+      'Crop Recommendation',
+      'Financial Forecasting',
+      'Calamity Monitoring',
+      'Supply Analytics',
+    ];
+
+    return Column(
+      crossAxisAlignment: isMobile ? CrossAxisAlignment.center : CrossAxisAlignment.start,
+      children: features.map((feature) {
+        return Padding(
+          padding: const EdgeInsets.only(bottom: 16),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                padding: const EdgeInsets.all(4),
+                decoration: const BoxDecoration(
+                  color: Color(0xFF4CAF50),
+                  shape: BoxShape.circle,
+                ),
+                child: const Icon(Icons.check, color: Colors.white, size: 16),
+              ),
+              const SizedBox(width: 16),
+              Text(
+                feature,
+                style: const TextStyle(
+                  fontFamily: 'Inter',
+                  fontSize: 16,
+                  color: Colors.white,
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
+            ],
+          ),
+        );
+      }).toList(),
+    );
   }
 
-  @override
-  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
+  Widget _buildLoginCard() {
+    return FadeTransition(
+      opacity: _fadeAnimation,
+      child: SlideTransition(
+        position: _slideAnimation,
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(28),
+          child: BackdropFilter(
+            filter: ImageFilter.blur(sigmaX: 25, sigmaY: 25),
+            child: Container(
+              width: double.infinity,
+              constraints: const BoxConstraints(maxWidth: 420),
+              padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 20),
+              decoration: BoxDecoration(
+                color: Colors.white.withOpacity(0.72),
+                borderRadius: BorderRadius.circular(24),
+                border: Border.all(color: Colors.white.withOpacity(0.4)),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withOpacity(0.15),
+                    blurRadius: 40,
+                    offset: const Offset(0, 20),
+                  )
+                ],
+              ),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  const Text(
+                    'Welcome Back',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      fontFamily: 'Sora',
+                      fontSize: 22,
+                      fontWeight: FontWeight.w800,
+                      color: Color(0xFF1F2937),
+                      letterSpacing: -0.5,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  const Text(
+                    'Sign in to continue to your dashboard.',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      fontFamily: 'Inter',
+                      fontSize: 13,
+                      color: Color(0xFF64748B),
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  
+                  const Text('Email', style: TextStyle(fontFamily: 'Inter', fontSize: 13, fontWeight: FontWeight.w600, color: Color(0xFF1F2937))),
+                  const SizedBox(height: 4),
+                  _buildTextField(
+                    controller: _emailController,
+                    hint: 'Enter your email',
+                    icon: '📧',
+                    keyboardType: TextInputType.emailAddress,
+                  ),
+                  
+                  const SizedBox(height: 12),
+                  const Text('Password', style: TextStyle(fontFamily: 'Inter', fontSize: 13, fontWeight: FontWeight.w600, color: Color(0xFF1F2937))),
+                  const SizedBox(height: 4),
+                  _buildTextField(
+                    controller: _passwordController,
+                    hint: '••••••••',
+                    icon: '🔒',
+                    isPassword: true,
+                  ),
+                  
+                  const SizedBox(height: 4),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Row(
+                        children: [
+                          SizedBox(
+                            width: 20,
+                            height: 20,
+                            child: Checkbox(
+                              value: _rememberMe,
+                              onChanged: (v) => setState(() => _rememberMe = v ?? false),
+                              activeColor: const Color(0xFF2E7D32),
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(4)),
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          const Text('Remember me', style: TextStyle(fontFamily: 'Inter', fontSize: 13, color: Color(0xFF4B5563))),
+                        ],
+                      ),
+                      TextButton(
+                        onPressed: () {},
+                        style: TextButton.styleFrom(
+                          padding: EdgeInsets.zero,
+                          minimumSize: const Size(0, 0),
+                          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                        ),
+                        child: const Text('Forgot?', style: TextStyle(fontFamily: 'Inter', fontSize: 13, fontWeight: FontWeight.w600, color: Color(0xFF2E7D32))),
+                      ),
+                    ],
+                  ),
+                  
+                  if (_errorMessage != null) ...[
+                    const SizedBox(height: 8),
+                    Container(
+                      padding: const EdgeInsets.all(8),
+                      decoration: BoxDecoration(color: const Color(0xFFDC2626).withOpacity(0.1), borderRadius: BorderRadius.circular(8)),
+                      child: Text(_errorMessage!, style: const TextStyle(color: Color(0xFFDC2626), fontSize: 12, fontWeight: FontWeight.w500)),
+                    ),
+                  ],
+                  
+                  const SizedBox(height: 16),
+                  
+                  AnimatedContainer(
+                    duration: const Duration(milliseconds: 200),
+                    height: 44,
+                    decoration: BoxDecoration(
+                      gradient: const LinearGradient(
+                        colors: [Color(0xFF2E7D32), Color(0xFF43A047)],
+                      ),
+                      borderRadius: BorderRadius.circular(12),
+                      boxShadow: [
+                        BoxShadow(
+                          color: const Color(0xFF2E7D32).withOpacity(0.3),
+                          blurRadius: 10,
+                          offset: const Offset(0, 4),
+                        )
+                      ],
+                    ),
+                    child: ElevatedButton(
+                      onPressed: _isLoading ? null : _submit,
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.transparent,
+                        shadowColor: Colors.transparent,
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                      ),
+                      child: _isLoading
+                          ? const SizedBox(height: 20, width: 20, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2))
+                          : const Row(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                Text('LOGIN', style: TextStyle(fontFamily: 'Inter', fontSize: 14, fontWeight: FontWeight.w600, color: Colors.white, letterSpacing: 1)),
+                                SizedBox(width: 6),
+                                Icon(Icons.arrow_forward_rounded, color: Colors.white, size: 18),
+                              ],
+                            ),
+                    ),
+                  ),
+                  
+                  const SizedBox(height: 12),
+                  const Divider(color: Color(0x331F2937), height: 1),
+                  const SizedBox(height: 8),
+                  
+                  Column(
+                    children: [
+                      const Text('Need assistance?', style: TextStyle(fontFamily: 'Inter', fontSize: 12, color: Color(0xFF64748B))),
+                      const SizedBox(height: 2),
+                      Text('Contact your Municipal Agriculture Office.', style: TextStyle(fontFamily: 'Inter', fontSize: 12, fontWeight: FontWeight.w500, color: const Color(0xFF1F2937).withOpacity(0.8))),
+                    ],
+                  ),
+                  
+                  const SizedBox(height: 12),
+                  const Text('Version 1.0 • © 2026 AgriSense', textAlign: TextAlign.center, style: TextStyle(fontFamily: 'Inter', fontSize: 10, color: Color(0xFF9CA3AF))),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildTextField({
+    required TextEditingController controller,
+    required String hint,
+    required String icon,
+    bool isPassword = false,
+    TextInputType? keyboardType,
+  }) {
+    return Container(
+      height: 44,
+      decoration: BoxDecoration(
+        color: Colors.white.withOpacity(0.9),
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: const Color(0xFFE5E7EB)),
+      ),
+      child: Row(
+        children: [
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 14),
+            child: Text(icon, style: const TextStyle(fontSize: 16)),
+          ),
+          Expanded(
+            child: TextFormField(
+              controller: controller,
+              obscureText: isPassword && _obscurePassword,
+              keyboardType: keyboardType,
+              style: const TextStyle(fontFamily: 'Inter', fontSize: 13, color: Color(0xFF1F2937)),
+              decoration: InputDecoration(
+                hintText: hint,
+                hintStyle: const TextStyle(color: Color(0xFF9CA3AF)),
+                border: InputBorder.none,
+                contentPadding: const EdgeInsets.symmetric(vertical: 12),
+              ),
+            ),
+          ),
+          if (isPassword)
+            IconButton(
+              icon: Icon(
+                _obscurePassword ? Icons.visibility_off_outlined : Icons.visibility_outlined,
+                color: const Color(0xFF9CA3AF),
+                size: 18,
+              ),
+              onPressed: () => setState(() => _obscurePassword = !_obscurePassword),
+            ),
+          if (!isPassword) const SizedBox(width: 14),
+        ],
+      ),
+    );
+  }
 }
