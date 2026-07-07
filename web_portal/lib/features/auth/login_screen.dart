@@ -1,4 +1,5 @@
 import 'dart:ui';
+import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -11,7 +12,7 @@ class LoginScreen extends ConsumerStatefulWidget {
   ConsumerState<LoginScreen> createState() => _LoginScreenState();
 }
 
-class _LoginScreenState extends ConsumerState<LoginScreen> with SingleTickerProviderStateMixin {
+class _LoginScreenState extends ConsumerState<LoginScreen> with TickerProviderStateMixin {
   final _emailController = TextEditingController();
   final _passwordController = TextEditingController();
   bool _isLoading = false;
@@ -22,6 +23,8 @@ class _LoginScreenState extends ConsumerState<LoginScreen> with SingleTickerProv
   late AnimationController _fadeController;
   late Animation<double> _fadeAnimation;
   late Animation<Offset> _slideAnimation;
+  
+  late AnimationController _bgController;
 
   @override
   void initState() {
@@ -39,12 +42,18 @@ class _LoginScreenState extends ConsumerState<LoginScreen> with SingleTickerProv
       CurvedAnimation(parent: _fadeController, curve: Curves.easeOutCubic),
     );
     
+    _bgController = AnimationController(
+      vsync: this,
+      duration: const Duration(seconds: 40),
+    )..repeat();
+    
     _fadeController.forward();
   }
 
   @override
   void dispose() {
     _fadeController.dispose();
+    _bgController.dispose();
     _emailController.dispose();
     _passwordController.dispose();
     super.dispose();
@@ -95,18 +104,47 @@ class _LoginScreenState extends ConsumerState<LoginScreen> with SingleTickerProv
     return Scaffold(
       body: Stack(
         children: [
-          // Background Gradient (Image removed as requested)
+          // Animated Background
           Positioned.fill(
             child: Container(
-              decoration: const BoxDecoration(
-                gradient: LinearGradient(
-                  begin: Alignment.topCenter,
-                  end: Alignment.bottomCenter,
-                  colors: [
-                    Color(0xFF0D4720),
-                    Color(0xFF082E14),
-                  ],
-                ),
+              color: const Color(0xFF082E14), // Base deep green
+              child: AnimatedBuilder(
+                animation: _bgController,
+                builder: (context, child) {
+                  return Stack(
+                    children: [
+                      // Subtly moving image
+                      Transform.translate(
+                        offset: Offset(math.sin(_bgController.value * 2 * math.pi) * 20, math.cos(_bgController.value * 2 * math.pi) * 20),
+                        child: Transform.scale(
+                          scale: 1.1,
+                          child: Opacity(
+                            opacity: 0.35,
+                            child: Image.network(
+                              'https://images.unsplash.com/photo-1592982537447-7440770cbfc9?q=80&w=2000&auto=format&fit=crop',
+                              fit: BoxFit.cover,
+                              width: double.infinity,
+                              height: double.infinity,
+                            ),
+                          ),
+                        ),
+                      ),
+                      // Gradient overlay
+                      Container(
+                        decoration: BoxDecoration(
+                          gradient: LinearGradient(
+                            begin: Alignment.topCenter,
+                            end: Alignment.bottomCenter,
+                            colors: [
+                              const Color(0xFF0D4720).withOpacity(0.65),
+                              const Color(0xFF082E14).withOpacity(0.85),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ],
+                  );
+                },
               ),
             ),
           ),
