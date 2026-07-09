@@ -101,7 +101,7 @@ class _CalamitiesScreenState extends ConsumerState<CalamitiesScreen> {
                       FittedBox(
                         fit: BoxFit.scaleDown,
                         alignment: Alignment.centerLeft,
-                        child: Text(displayTotal, style: const TextStyle(fontSize: 64, fontWeight: FontWeight.bold, color: AppColors.danger, letterSpacing: -2)),
+                        child: Text(displayTotal, style: const TextStyle(fontSize: 44, fontWeight: FontWeight.bold, color: AppColors.danger, letterSpacing: -2)),
                       ),
                       const SizedBox(height: 48),
                       Expanded(
