@@ -42,6 +42,13 @@ class _ReferenceDataScreenState extends ConsumerState<ReferenceDataScreen> {
   int _selectedTab = 0;
   Set<String> _selectedIds = {}; // For multi-select
   String _searchQuery = '';
+  final ScrollController _horizontalScrollController = ScrollController();
+
+  @override
+  void dispose() {
+    _horizontalScrollController.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -128,13 +135,18 @@ class _ReferenceDataScreenState extends ConsumerState<ReferenceDataScreen> {
 
               // Spreadsheet Area (with horizontal scroll)
               Expanded(
-                child: SingleChildScrollView(
-                  scrollDirection: Axis.horizontal,
-                  child: ConstrainedBox(
-                    constraints: BoxConstraints(minWidth: MediaQuery.of(context).size.width),
-                    child: SizedBox(
-                      width: math.max(MediaQuery.of(context).size.width, columnsWidth(currentColumns) + 100), // Ensure it spans at least screen width or required content width
-                      child: _buildSpreadsheet(currentData, currentColumns, idField),
+                child: Scrollbar(
+                  controller: _horizontalScrollController,
+                  thumbVisibility: true,
+                  child: SingleChildScrollView(
+                    controller: _horizontalScrollController,
+                    scrollDirection: Axis.horizontal,
+                    child: ConstrainedBox(
+                      constraints: BoxConstraints(minWidth: MediaQuery.of(context).size.width),
+                      child: SizedBox(
+                        width: math.max(MediaQuery.of(context).size.width, columnsWidth(currentColumns) + 200), // Added more padding
+                        child: _buildSpreadsheet(currentData, currentColumns, idField),
+                      ),
                     ),
                   ),
                 ),

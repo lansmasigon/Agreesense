@@ -35,6 +35,7 @@ class BarangayStats {
   final double validatedArea;
   final String topCrop;
   final Color riskColor;
+  final List<String> allCropsPlanted;
 
   BarangayStats({
     required this.name,
@@ -42,6 +43,7 @@ class BarangayStats {
     required this.validatedArea,
     required this.topCrop,
     required this.riskColor,
+    required this.allCropsPlanted,
   });
 }
 
@@ -146,7 +148,8 @@ final dashboardStatsProvider = FutureProvider.autoDispose<DashboardStats>((ref) 
       farmers: brgyFarmers[brgy]?.length ?? 0,
       validatedArea: brgyArea[brgy]!,
       topCrop: topCrop,
-      riskColor: rColor
+      riskColor: rColor,
+      allCropsPlanted: brgyCropsCount[brgy]?.keys.toList() ?? [],
     ));
   }
   barangayStats.sort((a, b) => b.validatedArea.compareTo(a.validatedArea));
@@ -315,11 +318,10 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
               Row(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  // Production Heatmap
+                  // Baranggay Information
                   Expanded(
                     flex: 2,
                     child: Container(
-                      height: 540,
                       padding: const EdgeInsets.all(32),
                       decoration: BoxDecoration(
                         color: AppColors.card,
@@ -329,81 +331,91 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          const Text('Production Heatmap', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, letterSpacing: -0.5)),
+                          const Text('Baranggay Information', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, letterSpacing: -0.5)),
                           const SizedBox(height: 24),
-                          Expanded(
-                            child: Row(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                // Simulated Map visualization - wrapped in SingleChildScrollView to prevent overflow
-                                Expanded(
-                                  flex: 3,
-                                  child: SingleChildScrollView(
-                                    child: Wrap(
-                                      spacing: 8,
-                                      runSpacing: 8,
-                                      children: stats.barangayStats.map((brgy) {
-                                        final isSelected = _selectedBarangay?.name == brgy.name;
-                                        return MouseRegion(
-                                          cursor: SystemMouseCursors.click,
-                                          child: GestureDetector(
-                                            onTap: () => setState(() => _selectedBarangay = brgy),
-                                            child: AnimatedContainer(
-                                              duration: const Duration(milliseconds: 200),
-                                              width: 100, // Fixed width
-                                              height: 100, // Fixed height to prevent overflow issues
-                                              decoration: BoxDecoration(
-                                                color: brgy.riskColor.withOpacity(isSelected ? 0.3 : 0.1),
-                                                border: Border.all(color: brgy.riskColor, width: isSelected ? 3 : 1),
-                                                borderRadius: BorderRadius.circular(16),
-                                                boxShadow: isSelected ? [BoxShadow(color: brgy.riskColor.withOpacity(0.4), blurRadius: 16)] : [],
-                                              ),
-                                              child: Center(
-                                                child: Text(brgy.name, textAlign: TextAlign.center, style: TextStyle(fontWeight: FontWeight.bold, fontSize: isSelected ? 14 : 12, color: AppColors.text)),
-                                              ),
-                                            ),
-                                          ),
-                                        );
-                                      }).toList(),
+                          Builder(
+                            builder: (context) {
+                              final currentBarangay = _selectedBarangay ?? (stats.barangayStats.isNotEmpty ? stats.barangayStats.first : null);
+                              return Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  DropdownButtonFormField<BarangayStats>(
+                                    decoration: InputDecoration(
+                                      labelText: 'Select Barangay',
+                                      labelStyle: const TextStyle(color: AppColors.secondaryText),
+                                      prefixIcon: const Icon(Icons.location_city_outlined, color: AppColors.primary),
+                                      filled: true,
+                                      fillColor: AppColors.background,
+                                      border: OutlineInputBorder(
+                                        borderRadius: BorderRadius.circular(16),
+                                        borderSide: const BorderSide(color: AppColors.border),
+                                      ),
+                                      enabledBorder: OutlineInputBorder(
+                                        borderRadius: BorderRadius.circular(16),
+                                        borderSide: const BorderSide(color: AppColors.border),
+                                      ),
+                                      focusedBorder: OutlineInputBorder(
+                                        borderRadius: BorderRadius.circular(16),
+                                        borderSide: const BorderSide(color: AppColors.primary, width: 2),
+                                      ),
+                                      contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
                                     ),
+                                    icon: const Icon(Icons.keyboard_arrow_down_rounded, color: AppColors.primary),
+                                    style: const TextStyle(color: AppColors.text, fontSize: 16, fontWeight: FontWeight.w600),
+                                    dropdownColor: AppColors.card,
+                                    borderRadius: BorderRadius.circular(16),
+                                    value: currentBarangay,
+                                    items: stats.barangayStats.map((brgy) {
+                                      return DropdownMenuItem(
+                                        value: brgy,
+                                        child: Text(brgy.name),
+                                      );
+                                    }).toList(),
+                                    onChanged: (val) {
+                                      setState(() {
+                                        _selectedBarangay = val;
+                                      });
+                                    },
                                   ),
-                                ),
-                                const SizedBox(width: 32),
-                                // Zoomed Details
-                                Expanded(
-                                  flex: 2,
-                                  child: AnimatedSwitcher(
-                                    duration: const Duration(milliseconds: 300),
-                                    child: _selectedBarangay == null 
-                                      ? const Center(child: Text('Select a barangay\nto view analytics.', textAlign: TextAlign.center, style: TextStyle(color: AppColors.secondaryText)))
-                                      : Column(
-                                          key: ValueKey(_selectedBarangay!.name),
-                                          crossAxisAlignment: CrossAxisAlignment.start,
-                                          children: [
-                                            Text(_selectedBarangay!.name, style: const TextStyle(fontSize: 28, fontWeight: FontWeight.bold, letterSpacing: -1)),
-                                            const SizedBox(height: 24),
-                                            _buildBrgyDetail('Farmers', '${_selectedBarangay!.farmers}', Icons.people_outline),
-                                            _buildBrgyDetail('Validated Area', '${_selectedBarangay!.validatedArea.toStringAsFixed(1)} ha', Icons.map_outlined),
-                                            _buildBrgyDetail('Top Crop', _selectedBarangay!.topCrop, Icons.grass),
-                                            const SizedBox(height: 32),
-                                            Container(
-                                              padding: const EdgeInsets.all(16),
-                                              decoration: BoxDecoration(color: _selectedBarangay!.riskColor.withOpacity(0.1), borderRadius: BorderRadius.circular(12)),
-                                              child: Row(
-                                                children: [
-                                                  Icon(Icons.analytics, color: _selectedBarangay!.riskColor),
-                                                  const SizedBox(width: 12),
-                                                  const Expanded(child: Text('Historical yield trending upward this season.', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w500))),
-                                                ],
-                                              ),
-                                            )
-                                          ],
+                                  const SizedBox(height: 24),
+                                  const Divider(),
+                                  const SizedBox(height: 24),
+                                  if (currentBarangay == null)
+                                    const Center(child: Padding(
+                                      padding: EdgeInsets.all(32.0),
+                                      child: Text('No barangay data available.', textAlign: TextAlign.center, style: TextStyle(color: AppColors.secondaryText)),
+                                    ))
+                                  else
+                                    Row(
+                                      key: ValueKey(currentBarangay.name),
+                                      crossAxisAlignment: CrossAxisAlignment.start,
+                                      children: [
+                                        Expanded(
+                                          child: Column(
+                                            crossAxisAlignment: CrossAxisAlignment.start,
+                                            children: [
+                                              _buildBrgyDetail('Farmers', '${currentBarangay.farmers}', Icons.people_outline),
+                                              _buildBrgyDetail('Validated Area', '${currentBarangay.validatedArea.toStringAsFixed(1)} ha', Icons.location_on_outlined),
+                                              _buildBrgyDetail('Yield Trend', 'Increasing', Icons.trending_up),
+                                            ],
+                                          ),
                                         ),
-                                  ),
-                                )
-                              ],
-                            ),
-                          )
+                                        const SizedBox(width: 24),
+                                        Expanded(
+                                          child: Column(
+                                            crossAxisAlignment: CrossAxisAlignment.start,
+                                            children: [
+                                              _buildBrgyDetail('Top Crop', currentBarangay.topCrop, Icons.eco_outlined),
+                                              _buildBrgyDetail('All Crops Planted', currentBarangay.allCropsPlanted.isEmpty ? 'None' : currentBarangay.allCropsPlanted.join(', '), Icons.list_alt_outlined),
+                                            ],
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                ],
+                              );
+                            }
+                          ),
                         ],
                       ),
                     ),
