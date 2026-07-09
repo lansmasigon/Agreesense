@@ -95,8 +95,9 @@ final dashboardStatsProvider = FutureProvider.autoDispose<DashboardStats>((ref) 
   }
 
   // 3. Total farmers
-  final farmersRes = await supabase.from('profiles').select('id').eq('role', 'farmer').count();
-  final totalFarmers = farmersRes.count ?? 0;
+  final farmersRes = await supabase.from('profiles').select('full_name').eq('role', 'farmer');
+  final totalFarmers = (farmersRes as List).length;
+  final List<String> farmersList = farmersRes.map((e) => e['full_name']?.toString() ?? 'Unknown').toList();
 
   // 4. Oversupply crops
   final oversupplyCrops = ['Tomato', 'Eggplant'];
@@ -181,7 +182,7 @@ final dashboardStatsProvider = FutureProvider.autoDispose<DashboardStats>((ref) 
     barangayStats: barangayStats,
     recentActivities: recentActivities,
     pendingValidationList: pendingList,
-    farmersList: [],
+    farmersList: farmersList,
     validatedAreaByBarangay: brgyAreaMap,
   );
 });
@@ -200,28 +201,82 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
     showDialog(
       context: context,
       builder: (context) {
-        return AlertDialog(
-          title: Text(title, style: const TextStyle(fontWeight: FontWeight.bold)),
-          content: SizedBox(
-            width: double.maxFinite,
-            child: items.isEmpty 
-              ? const Text('No details available.', style: TextStyle(color: AppColors.secondaryText)) 
-              : ListView.builder(
-                  shrinkWrap: true,
-                  itemCount: items.length,
-                  itemBuilder: (context, index) {
-                    return ListTile(
-                      title: Text(items[index], style: const TextStyle(color: AppColors.text)),
-                    );
-                  },
+        return Dialog(
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+          backgroundColor: AppColors.card,
+          child: Container(
+            width: 400,
+            constraints: const BoxConstraints(maxHeight: 600),
+            padding: const EdgeInsets.all(32),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Expanded(child: Text(title, style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold, letterSpacing: -0.5, color: AppColors.text))),
+                    IconButton(
+                      icon: const Icon(Icons.close, color: AppColors.secondaryText),
+                      onPressed: () => Navigator.of(context).pop(),
+                    )
+                  ],
                 ),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.of(context).pop(),
-              child: const Text('Close', style: TextStyle(color: AppColors.primary)),
+                const SizedBox(height: 16),
+                const Divider(color: AppColors.border),
+                const SizedBox(height: 16),
+                if (items.isEmpty)
+                  const Padding(
+                    padding: EdgeInsets.symmetric(vertical: 32.0),
+                    child: Center(child: Text('No details available.', style: TextStyle(color: AppColors.secondaryText))),
+                  )
+                else
+                  Flexible(
+                    child: ListView.separated(
+                      shrinkWrap: true,
+                      itemCount: items.length,
+                      separatorBuilder: (_, __) => const Divider(color: AppColors.border, height: 1),
+                      itemBuilder: (context, index) {
+                        return Padding(
+                          padding: const EdgeInsets.symmetric(vertical: 12.0),
+                          child: Row(
+                            children: [
+                              Container(
+                                width: 8,
+                                height: 8,
+                                decoration: const BoxDecoration(color: AppColors.primary, shape: BoxShape.circle),
+                              ),
+                              const SizedBox(width: 16),
+                              Expanded(
+                                child: Text(items[index], style: const TextStyle(color: AppColors.text, fontSize: 14, fontWeight: FontWeight.w500)),
+                              ),
+                            ],
+                          ),
+                        );
+                      },
+                    ),
+                  ),
+                const SizedBox(height: 24),
+                SizedBox(
+                  width: double.infinity,
+                  child: ElevatedButton(
+                    onPressed: () => Navigator.of(context).pop(),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: AppColors.background,
+                      foregroundColor: AppColors.primary,
+                      padding: const EdgeInsets.symmetric(vertical: 16),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                        side: const BorderSide(color: AppColors.border)
+                      ),
+                      elevation: 0,
+                    ),
+                    child: const Text('Close Details', style: TextStyle(fontWeight: FontWeight.bold)),
+                  ),
+                )
+              ],
             ),
-          ],
+          ),
         );
       },
     );
