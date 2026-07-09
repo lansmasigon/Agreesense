@@ -22,7 +22,7 @@ class ValidationQueueScreen extends ConsumerStatefulWidget {
 
 class _ValidationQueueScreenState extends ConsumerState<ValidationQueueScreen> {
   String _selectedStatus = 'All';
-  final List<String> _statuses = ['All', 'pending', 'baw_approved', 'technician_verified', 'approved', 'rejected'];
+  final List<String> _statuses = ['All', 'pending', 'baw_approved', 'approved', 'rejected'];
   Map<String, dynamic>? _selectedDeclaration;
 
   String _formatCropId(String id) {
@@ -186,7 +186,6 @@ class _ValidationQueueScreenState extends ConsumerState<ValidationQueueScreen> {
     switch (status) {
       case 'pending': color = AppColors.warning; break;
       case 'baw_approved': color = AppColors.information; break;
-      case 'technician_verified': color = AppColors.accent; break;
       case 'approved': color = AppColors.primary; break;
       case 'rejected': color = AppColors.danger; break;
       default: color = AppColors.secondaryText;
@@ -269,9 +268,8 @@ class _ValidationQueueScreenState extends ConsumerState<ValidationQueueScreen> {
                     children: [
                       const Text('TIMELINE', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: AppColors.secondaryText, letterSpacing: 1.2)),
                       const SizedBox(height: 24),
-                      _buildTimelineNode('Pending', isActive: status == 'pending', isPast: ['baw_approved', 'technician_verified', 'approved'].contains(status)),
-                      _buildTimelineNode('BAW Review', isActive: status == 'baw_approved', isPast: ['technician_verified', 'approved'].contains(status)),
-                      _buildTimelineNode('Technician Review', isActive: status == 'technician_verified', isPast: status == 'approved'),
+                      _buildTimelineNode('Pending', isActive: status == 'pending', isPast: ['baw_approved', 'approved'].contains(status)),
+                      _buildTimelineNode('BAW Review', isActive: status == 'baw_approved', isPast: status == 'approved'),
                       _buildTimelineNode('MAO Approval', isActive: status == 'approved', isPast: false, isLast: true),
                       
                       const Spacer(),
@@ -396,15 +394,13 @@ class _ValidationQueueScreenState extends ConsumerState<ValidationQueueScreen> {
 
   bool _canReview(String status, String? role) {
     if (role == 'baw' && status == 'pending') return true;
-    if (role == 'technician' && status == 'baw_approved') return true;
-    if (role == 'mao' && status == 'technician_verified') return true;
+    if (role == 'mao' && status == 'baw_approved') return true;
     return false;
   }
 
   String _getNextStatus(String current) {
     if (current == 'pending') return 'baw_approved';
-    if (current == 'baw_approved') return 'technician_verified';
-    if (current == 'technician_verified') return 'approved';
+    if (current == 'baw_approved') return 'approved';
     return current;
   }
 
