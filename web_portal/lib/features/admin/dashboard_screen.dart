@@ -10,6 +10,8 @@ class DashboardStats {
   final double validatedArea;
   final int totalFarmers;
   final List<String> oversupplyCrops;
+  final String oversupplyRiskLevel;
+  final Color oversupplyRiskColor;
   final List<BarangayStats> barangayStats;
   final List<RecentActivity> recentActivities;
   final List<Map<String, dynamic>> pendingValidationList; // Updated to Map for rich cards
@@ -21,6 +23,8 @@ class DashboardStats {
     required this.validatedArea,
     required this.totalFarmers,
     required this.oversupplyCrops,
+    required this.oversupplyRiskLevel,
+    required this.oversupplyRiskColor,
     required this.barangayStats,
     required this.recentActivities,
     required this.pendingValidationList,
@@ -99,9 +103,6 @@ final dashboardStatsProvider = FutureProvider.autoDispose<DashboardStats>((ref) 
   final totalFarmers = (farmersRes as List).length;
   final List<String> farmersList = farmersRes.map((e) => e['full_name']?.toString() ?? 'Unknown').toList();
 
-  // 4. Oversupply crops
-  final oversupplyCrops = ['Tomato', 'Eggplant'];
-
   // 5. Barangay stats for heatmap
   final brgyRes = await supabase
       .from('crop_declarations')
@@ -111,6 +112,7 @@ final dashboardStatsProvider = FutureProvider.autoDispose<DashboardStats>((ref) 
   final Map<String, Set<String>> brgyFarmers = {};
   final Map<String, double> brgyArea = {};
   final Map<String, Map<String, int>> brgyCropsCount = {};
+  final Map<String, Set<String>> cropToBarangays = {};
 
   for (var row in brgyRes as List) {
     final brgy = row['barangay'] as String? ?? 'Unknown';
@@ -123,6 +125,34 @@ final dashboardStatsProvider = FutureProvider.autoDispose<DashboardStats>((ref) 
     brgyArea[brgy] = (brgyArea[brgy] ?? 0) + area;
     brgyCropsCount.putIfAbsent(brgy, () => {});
     brgyCropsCount[brgy]![cropName] = (brgyCropsCount[brgy]![cropName] ?? 0) + 1;
+    cropToBarangays.putIfAbsent(cropName, () => {}).add(brgy);
+  }
+
+  // 4. Oversupply crops logic
+  String oversupplyRiskLevel = 'Low';
+  Color oversupplyRiskColor = AppColors.information;
+  List<String> oversupplyCrops = [];
+  int maxBarangaysForCrop = 0;
+
+  for (var entry in cropToBarangays.entries) {
+    int count = entry.value.length;
+    if (count > maxBarangaysForCrop) {
+      maxBarangaysForCrop = count;
+    }
+  }
+
+  if (maxBarangaysForCrop >= 7) {
+    oversupplyRiskLevel = 'High';
+    oversupplyRiskColor = AppColors.danger;
+    oversupplyCrops = cropToBarangays.entries.where((e) => e.value.length >= 7).map((e) => e.key).toList();
+  } else if (maxBarangaysForCrop >= 5) {
+    oversupplyRiskLevel = 'Medium';
+    oversupplyRiskColor = AppColors.warning;
+    oversupplyCrops = cropToBarangays.entries.where((e) => e.value.length >= 5).map((e) => e.key).toList();
+  } else {
+    oversupplyRiskLevel = 'Low';
+    oversupplyRiskColor = AppColors.primary;
+    oversupplyCrops = ['None'];
   }
 
   final List<BarangayStats> barangayStats = [];
@@ -179,6 +209,8 @@ final dashboardStatsProvider = FutureProvider.autoDispose<DashboardStats>((ref) 
     validatedArea: validatedArea,
     totalFarmers: totalFarmers,
     oversupplyCrops: oversupplyCrops,
+    oversupplyRiskLevel: oversupplyRiskLevel,
+    oversupplyRiskColor: oversupplyRiskColor,
     barangayStats: barangayStats,
     recentActivities: recentActivities,
     pendingValidationList: pendingList,
@@ -358,9 +390,9 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                   const SizedBox(width: 24),
                   Expanded(child: _buildHoverCard(
                     title: 'Oversupply Risk',
-                    value: 'High',
+                    value: stats.oversupplyRiskLevel,
                     subtitle: stats.oversupplyCrops.join(', '),
-                    valueColor: AppColors.danger,
+                    valueColor: stats.oversupplyRiskColor,
                     onTap: () {
                       _showDetailsDialog(context, 'Oversupply Crops', stats.oversupplyCrops);
                     }

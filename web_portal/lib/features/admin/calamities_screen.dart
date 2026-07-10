@@ -8,7 +8,7 @@ final calamitiesProvider = FutureProvider.autoDispose<List<Map<String, dynamic>>
   final supabase = ref.watch(supabaseClientProvider);
   final res = await supabase
       .from('calamity_reports')
-      .select('*, profiles(full_name)')
+      .select('*, profiles(full_name, barangay)')
       .order('created_at', ascending: false);
   return List<Map<String, dynamic>>.from(res as List);
 });
@@ -148,7 +148,7 @@ class _CalamitiesScreenState extends ConsumerState<CalamitiesScreen> {
     lossByType.forEach((type, value) {
       if (value > 0) {
         final isTouched = i == _touchedIndex;
-        final radius = isTouched ? 130.0 : 100.0;
+        final radius = isTouched ? 90.0 : 70.0;
         final fontSize = isTouched ? 16.0 : 12.0;
 
         // Display exact formatting based on value magnitude
@@ -199,7 +199,7 @@ class _CalamitiesScreenState extends ConsumerState<CalamitiesScreen> {
         ),
         borderData: FlBorderData(show: false),
         sectionsSpace: 4,
-        centerSpaceRadius: 120,
+        centerSpaceRadius: 80,
         sections: sections,
       ),
     );
@@ -270,6 +270,7 @@ class _CalamitiesScreenState extends ConsumerState<CalamitiesScreen> {
     final estimatedSubsidy = lossFactor * area * _calibratedValuePerHectare;
     final type = report['type'] ?? 'Unknown';
     final farmer = report['profiles']?['full_name'] ?? 'Unknown';
+    final barangay = report['barangay'] ?? report['profiles']?['barangay'] ?? 'Unknown';
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -294,6 +295,8 @@ class _CalamitiesScreenState extends ConsumerState<CalamitiesScreen> {
                 Text('Reported by $farmer', style: const TextStyle(color: AppColors.secondaryText, fontSize: 16)),
                 const SizedBox(height: 48),
 
+                _buildCalcRow('Barangays Affected', barangay),
+                const SizedBox(height: 24),
                 _buildCalcRow('Affected Area', '${area.toStringAsFixed(1)} ha'),
                 const SizedBox(height: 24),
                 _buildCalcRow('Loss Percentage', '${(lossFactor * 100).toStringAsFixed(0)}%'),
