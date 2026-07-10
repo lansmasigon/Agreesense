@@ -9,13 +9,16 @@ class ReportsData {
   final double pendingArea;
   final Map<String, double> cropDistribution;
   final List<MonthlyValidation> validationOverTime;
+  final Map<String, double> barangaysAffectedByCalamity;
   
   ReportsData({
     required this.totalArea, 
     required this.pendingArea,
     Map<String, double>? cropDistribution,
     required this.validationOverTime,
-  }) : cropDistribution = cropDistribution ?? {};
+    Map<String, double>? barangaysAffectedByCalamity,
+  }) : cropDistribution = cropDistribution ?? {},
+       barangaysAffectedByCalamity = barangaysAffectedByCalamity ?? {};
 }
 
 class MonthlyValidation {
@@ -28,11 +31,13 @@ final reportsProvider = FutureProvider.autoDispose<ReportsData>((ref) async {
   final supabase = ref.watch(supabaseClientProvider);
   
   final res = await supabase.from('crop_declarations').select('area_ha, status, created_at, crop_id');
+  final calamityRes = await supabase.from('calamity_reports').select('affected_area_ha, barangay, profiles(barangay)');
   
   double total = 0;
   double pending = 0;
   Map<String, double> distribution = {};
   Map<int, double> monthlyMap = {};
+  Map<String, double> affectedBarangays = {};
   
   for (var row in res as List) {
     final area = (row['area_ha'] as num).toDouble();
@@ -53,6 +58,12 @@ final reportsProvider = FutureProvider.autoDispose<ReportsData>((ref) async {
       pending += area;
     }
   }
+
+  for (var row in calamityRes as List) {
+    final area = (row['affected_area_ha'] as num?)?.toDouble() ?? 0;
+    final brgy = row['barangay'] ?? row['profiles']?['barangay'] ?? 'Unknown';
+    affectedBarangays[brgy] = (affectedBarangays[brgy] ?? 0) + area;
+  }
   
   List<MonthlyValidation> validationOverTime = [];
   for (int i = 1; i <= 12; i++) {
@@ -64,6 +75,7 @@ final reportsProvider = FutureProvider.autoDispose<ReportsData>((ref) async {
     pendingArea: pending,
     cropDistribution: distribution,
     validationOverTime: validationOverTime,
+    barangaysAffectedByCalamity: affectedBarangays,
   );
 });
 
@@ -75,17 +87,46 @@ class ReportsScreen extends ConsumerWidget {
       context: context,
       builder: (context) {
         return AlertDialog(
-          title: Text(title),
+          backgroundColor: AppColors.card,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+          title: Text(title, style: const TextStyle(fontWeight: FontWeight.bold, color: AppColors.text)),
           content: SizedBox(
-            width: double.maxFinite,
+            width: 400,
             child: items.isEmpty 
-              ? const Text('No details available.') 
-              : ListView.builder(
+              ? const Text('No details available.', style: TextStyle(color: AppColors.secondaryText)) 
+              : ListView.separated(
                   shrinkWrap: true,
                   itemCount: items.length,
+                  separatorBuilder: (context, index) => const SizedBox(height: 12),
                   itemBuilder: (context, index) {
-                    return ListTile(
-                      title: Text(items[index]),
+                    return StatefulBuilder(
+                      builder: (context, setState) {
+                        bool isHovered = false;
+                        return MouseRegion(
+                          onEnter: (_) => setState(() => isHovered = true),
+                          onExit: (_) => setState(() => isHovered = false),
+                          child: AnimatedContainer(
+                            duration: const Duration(milliseconds: 200),
+                            curve: Curves.easeOutQuart,
+                            padding: const EdgeInsets.all(20),
+                            transform: Matrix4.translationValues(0, isHovered ? -2 : 0, 0),
+                            decoration: BoxDecoration(
+                              color: isHovered ? AppColors.primary.withOpacity(0.05) : AppColors.background,
+                              borderRadius: BorderRadius.circular(16),
+                              border: Border.all(color: isHovered ? AppColors.primary.withOpacity(0.5) : AppColors.border),
+                              boxShadow: isHovered ? [BoxShadow(color: AppColors.primary.withOpacity(0.08), blurRadius: 16, offset: const Offset(0, 8))] : [],
+                            ),
+                            child: Text(
+                              items[index],
+                              style: TextStyle(
+                                fontSize: 15,
+                                color: isHovered ? AppColors.text : AppColors.secondaryText,
+                                fontWeight: isHovered ? FontWeight.w500 : FontWeight.normal,
+                              ),
+                            ),
+                          ),
+                        );
+                      }
                     );
                   },
                 ),
@@ -93,7 +134,12 @@ class ReportsScreen extends ConsumerWidget {
           actions: [
             TextButton(
               onPressed: () => Navigator.of(context).pop(),
-              child: const Text('Close'),
+              style: TextButton.styleFrom(
+                foregroundColor: AppColors.primary,
+                padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+              ),
+              child: const Text('Close', style: TextStyle(fontWeight: FontWeight.bold)),
             ),
           ],
         );
@@ -139,20 +185,38 @@ class ReportsScreen extends ConsumerWidget {
                 
                 Row(
                   children: [
-                    _buildSummaryCard(context, 'Rice (Q3)', '45,000 MT', Icons.trending_up, AppColors.primary, 'Production Forecast', onTap: () {
-                      _showDetailsDialog(context, 'Rice (Q3) Forecast', ['Based on 9,000 ha of validated area.', 'Expected yield: 5 MT/ha.']);
-                    }),
+                    Builder(
+                      builder: (context) {
+                        String topCropName = 'None';
+                        double topCropArea = 0.0;
+                        if (data.cropDistribution.isNotEmpty) {
+                          final sortedCrops = data.cropDistribution.entries.toList()..sort((a, b) => b.value.compareTo(a.value));
+                          topCropName = sortedCrops.first.key;
+                          topCropArea = sortedCrops.first.value;
+                        }
+                        return _buildSummaryCard(
+                          context, 
+                          'Top Crop', 
+                          topCropName, 
+                          AppColors.primary, 
+                          '${topCropArea.toStringAsFixed(1)} ha validated', 
+                          onTap: () {
+                            _showDetailsDialog(context, 'Top Crop Details', ['$topCropName has the highest validated area at ${topCropArea.toStringAsFixed(1)} hectares.']);
+                          }
+                        );
+                      }
+                    ),
                     const SizedBox(width: 24),
-                    _buildSummaryCard(context, 'Corn (Q3)', '22,000 MT', Icons.trending_flat, AppColors.information, 'Production Forecast', onTap: () {
+                    _buildSummaryCard(context, 'Corn (Q3)', '22k MT', AppColors.information, 'Production Forecast', onTap: () {
                       _showDetailsDialog(context, 'Corn (Q3) Forecast', ['Based on 5,500 ha of validated area.', 'Expected yield: 4 MT/ha.']);
                     }),
                     const SizedBox(width: 24),
-                    _buildSummaryCard(context, 'Total Area', '${data.totalArea.toStringAsFixed(1)} ha', Icons.map, AppColors.accent, 'Validated Area', onTap: () {
+                    _buildSummaryCard(context, 'Total Area', '${data.totalArea.toStringAsFixed(0)} ha', AppColors.accent, 'Validated Area', onTap: () {
                       final items = data.cropDistribution.entries.map((e) => '${e.key}: ${e.value.toStringAsFixed(1)} ha').toList();
                       _showDetailsDialog(context, 'Total Validated Area', items);
                     }),
                     const SizedBox(width: 24),
-                    _buildSummaryCard(context, 'Pending Validation', '${data.pendingArea.toStringAsFixed(1)} ha', Icons.pending_actions, AppColors.warning, 'Validated Area', onTap: () {
+                    _buildSummaryCard(context, 'Pending', '${data.pendingArea.toStringAsFixed(0)} ha', AppColors.warning, 'For Validation', onTap: () {
                       _showDetailsDialog(context, 'Pending Validation Area', ['Total pending area: ${data.pendingArea.toStringAsFixed(1)} ha across all barangays.']);
                     }),
                     const SizedBox(width: 24),
@@ -187,77 +251,157 @@ class ReportsScreen extends ConsumerWidget {
                   ),
                 ),
                 const SizedBox(height: 32),
-                Container(
-                  width: double.infinity,
-                  height: 480,
-                  padding: const EdgeInsets.all(32),
-                  decoration: BoxDecoration(
-                    color: AppColors.card,
-                    borderRadius: BorderRadius.circular(24),
-                    border: Border.all(color: AppColors.border),
-                  ),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      const Text('Validated Area Over Time (Months)', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, letterSpacing: -0.5)),
-                      const SizedBox(height: 48),
-                      Expanded(
-                        child: LineChart(
-                          LineChartData(
-                            gridData: const FlGridData(show: false),
-                            titlesData: FlTitlesData(
-                              bottomTitles: AxisTitles(
-                                sideTitles: SideTitles(
-                                  showTitles: true,
-                                  getTitlesWidget: (value, meta) {
-                                    const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-                                    final index = value.toInt() - 1;
-                                    if (index >= 0 && index < months.length) {
-                                      return Padding(
-                                        padding: const EdgeInsets.only(top: 16.0),
-                                        child: Text(months[index], style: const TextStyle(fontSize: 13, color: AppColors.secondaryText)),
-                                      );
-                                    }
-                                    return const Text('');
-                                  },
-                                  interval: 1,
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Expanded(
+                      child: Container(
+                        height: 480,
+                        padding: const EdgeInsets.all(32),
+                        decoration: BoxDecoration(
+                          color: AppColors.card,
+                          borderRadius: BorderRadius.circular(24),
+                          border: Border.all(color: AppColors.border),
+                        ),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const Text('Validated Area Over Time (Months)', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, letterSpacing: -0.5)),
+                            const SizedBox(height: 48),
+                            Expanded(
+                              child: LineChart(
+                                LineChartData(
+                                  minX: 1,
+                                  maxX: 12,
+                                  gridData: const FlGridData(show: false),
+                                  titlesData: FlTitlesData(
+                                    bottomTitles: AxisTitles(
+                                      sideTitles: SideTitles(
+                                        showTitles: true,
+                                        reservedSize: 42,
+                                        getTitlesWidget: (value, meta) {
+                                          const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+                                          final index = value.toInt() - 1;
+                                          if (index >= 0 && index < months.length) {
+                                            return Padding(
+                                              padding: const EdgeInsets.only(top: 16.0),
+                                              child: Text(months[index], style: const TextStyle(fontSize: 13, color: AppColors.secondaryText)),
+                                            );
+                                          }
+                                          return const Text('');
+                                        },
+                                        interval: 1,
+                                      ),
+                                    ),
+                                    topTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+                                    rightTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+                                    leftTitles: AxisTitles(
+                                      sideTitles: SideTitles(
+                                        showTitles: true, 
+                                        reservedSize: 48, 
+                                        getTitlesWidget: (value, meta) => Text(value.toInt().toString(), style: const TextStyle(fontSize: 13, color: AppColors.secondaryText))
+                                      )
+                                    ),
+                                  ),
+                                  borderData: FlBorderData(show: false),
+                                  lineBarsData: [
+                                    LineChartBarData(
+                                      spots: data.validationOverTime.map((e) => FlSpot(e.month.toDouble(), e.area)).toList(),
+                                      isCurved: true,
+                                      curveSmoothness: 0.35,
+                                      color: AppColors.primary,
+                                      barWidth: 4,
+                                      isStrokeCapRound: true,
+                                      dotData: const FlDotData(show: false),
+                                      belowBarData: BarAreaData(
+                                        show: true, 
+                                        gradient: LinearGradient(
+                                          colors: [AppColors.primary.withOpacity(0.3), AppColors.primary.withOpacity(0.0)],
+                                          begin: Alignment.topCenter,
+                                          end: Alignment.bottomCenter,
+                                        )
+                                      ),
+                                    ),
+                                  ],
                                 ),
-                              ),
-                              topTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
-                              rightTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
-                              leftTitles: AxisTitles(
-                                sideTitles: SideTitles(
-                                  showTitles: true, 
-                                  reservedSize: 48, 
-                                  getTitlesWidget: (value, meta) => Text(value.toInt().toString(), style: const TextStyle(fontSize: 13, color: AppColors.secondaryText))
-                                )
                               ),
                             ),
-                            borderData: FlBorderData(show: false),
-                            lineBarsData: [
-                              LineChartBarData(
-                                spots: data.validationOverTime.map((e) => FlSpot(e.month.toDouble(), e.area)).toList(),
-                                isCurved: true,
-                                curveSmoothness: 0.35,
-                                color: AppColors.primary,
-                                barWidth: 4,
-                                isStrokeCapRound: true,
-                                dotData: const FlDotData(show: false),
-                                belowBarData: BarAreaData(
-                                  show: true, 
-                                  gradient: LinearGradient(
-                                    colors: [AppColors.primary.withOpacity(0.3), AppColors.primary.withOpacity(0.0)],
-                                    begin: Alignment.topCenter,
-                                    end: Alignment.bottomCenter,
-                                  )
-                                ),
-                              ),
-                            ],
-                          ),
+                          ],
                         ),
                       ),
-                    ],
-                  ),
+                    ),
+                    const SizedBox(width: 32),
+                    Expanded(
+                      child: Container(
+                        height: 480,
+                        padding: const EdgeInsets.all(32),
+                        decoration: BoxDecoration(
+                          color: AppColors.card,
+                          borderRadius: BorderRadius.circular(24),
+                          border: Border.all(color: AppColors.border),
+                        ),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const Text('Barangays affected by Calamity', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, letterSpacing: -0.5)),
+                            const SizedBox(height: 48),
+                            Expanded(
+                              child: data.barangaysAffectedByCalamity.isEmpty
+                                  ? const Center(child: Text('No calamity data', style: TextStyle(color: AppColors.secondaryText)))
+                                  : BarChart(
+                                      BarChartData(
+                                        gridData: const FlGridData(show: false),
+                                        titlesData: FlTitlesData(
+                                          bottomTitles: AxisTitles(
+                                            sideTitles: SideTitles(
+                                              showTitles: true,
+                                              reservedSize: 42,
+                                              getTitlesWidget: (value, meta) {
+                                                final keys = data.barangaysAffectedByCalamity.keys.toList();
+                                                if (value.toInt() >= 0 && value.toInt() < keys.length) {
+                                                  return Padding(
+                                                    padding: const EdgeInsets.only(top: 16.0),
+                                                    child: Text(keys[value.toInt()], style: const TextStyle(fontSize: 11, color: AppColors.secondaryText)),
+                                                  );
+                                                }
+                                                return const Text('');
+                                              },
+                                              interval: 1,
+                                            ),
+                                          ),
+                                          topTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+                                          rightTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+                                          leftTitles: AxisTitles(
+                                            sideTitles: SideTitles(
+                                              showTitles: true, 
+                                              reservedSize: 48, 
+                                              interval: 1,
+                                              getTitlesWidget: (value, meta) => Text('${value.toInt()} ha', style: const TextStyle(fontSize: 11, color: AppColors.secondaryText))
+                                            )
+                                          ),
+                                        ),
+                                        borderData: FlBorderData(show: false),
+                                        barGroups: data.barangaysAffectedByCalamity.entries.toList().asMap().entries.map((entry) {
+                                          return BarChartGroupData(
+                                            x: entry.key,
+                                            barRods: [
+                                              BarChartRodData(
+                                                toY: entry.value.value,
+                                                color: AppColors.danger,
+                                                width: 24,
+                                                borderRadius: const BorderRadius.only(topLeft: Radius.circular(6), topRight: Radius.circular(6)),
+                                              )
+                                            ],
+                                          );
+                                        }).toList(),
+                                      ),
+                                    ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ],
                 ),
               ],
             ),
@@ -273,48 +417,51 @@ class ReportsScreen extends ConsumerWidget {
     final sortedEntries = distribution.entries.toList()..sort((a, b) => b.value.compareTo(a.value));
     final allCrops = sortedEntries;
     
-    final colors = [AppColors.primary, AppColors.secondary, AppColors.accent, AppColors.information, AppColors.warning];
+    final colors = [AppColors.primary, AppColors.secondary, AppColors.accent, AppColors.information, AppColors.warning, AppColors.danger, AppColors.text, AppColors.border, Colors.teal, Colors.purple];
     
     return Row(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         Expanded(
-          flex: 3,
+          flex: 4,
           child: PieChart(
             PieChartData(
-              sectionsSpace: 4,
-              centerSpaceRadius: 60,
+              sectionsSpace: 2,
+              centerSpaceRadius: 100,
               sections: allCrops.asMap().entries.map((entry) {
                 final color = colors[entry.key % colors.length];
                 return PieChartSectionData(
                   color: color,
                   value: entry.value.value,
-                  title: '', // Removed noisy titles, relies on legend
-                  radius: 40,
+                  title: '${(entry.value.value / allCrops.fold(0.0, (sum, e) => sum + e.value) * 100).toStringAsFixed(1)}%',
+                  radius: 50,
+                  titleStyle: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.white),
                 );
               }).toList(),
             ),
           ),
         ),
-        const SizedBox(width: 32),
+        const SizedBox(width: 48),
         Expanded(
-          flex: 2,
-          child: ListView.builder(
+          flex: 3,
+          child: ListView.separated(
             itemCount: allCrops.length,
+            separatorBuilder: (context, index) => const Divider(color: AppColors.border, height: 16),
             itemBuilder: (context, index) {
               final entry = allCrops[index];
               return Padding(
-                padding: const EdgeInsets.symmetric(vertical: 8.0),
+                padding: const EdgeInsets.symmetric(vertical: 4.0),
                 child: Row(
                   children: [
-                    Container(width: 12, height: 12, decoration: BoxDecoration(color: colors[index % colors.length], borderRadius: BorderRadius.circular(4))),
-                    const SizedBox(width: 12),
+                    Container(width: 16, height: 16, decoration: BoxDecoration(color: colors[index % colors.length], borderRadius: BorderRadius.circular(4))),
+                    const SizedBox(width: 16),
                     Expanded(
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Text(entry.key, style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: AppColors.text), overflow: TextOverflow.ellipsis),
-                          Text('${entry.value.toStringAsFixed(0)} ha', style: const TextStyle(fontSize: 12, color: AppColors.secondaryText)),
+                          Text(entry.key, style: const TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: AppColors.text), overflow: TextOverflow.ellipsis),
+                          const SizedBox(height: 4),
+                          Text('${entry.value.toStringAsFixed(1)} ha', style: const TextStyle(fontSize: 13, color: AppColors.secondaryText)),
                         ],
                       ),
                     ),
@@ -328,102 +475,68 @@ class ReportsScreen extends ConsumerWidget {
     );
   }
 
-  Widget _buildSummaryCard(BuildContext context, String title, String value, IconData icon, Color color, String subtitle, {VoidCallback? onTap}) {
+  Widget _buildSummaryCard(BuildContext context, String title, String value, Color color, String subtitle, {VoidCallback? onTap}) {
     return Expanded(
-      child: StatefulBuilder(
-        builder: (context, setState) {
-          bool isHovered = false;
-          return MouseRegion(
-            onEnter: (_) => setState(() => isHovered = true),
-            onExit: (_) => setState(() => isHovered = false),
-            child: GestureDetector(
-              onTap: onTap,
-              child: AnimatedContainer(
-                duration: const Duration(milliseconds: 200),
-                curve: Curves.easeOutQuart,
-                transform: Matrix4.translationValues(0, isHovered ? -4 : 0, 0),
-                decoration: BoxDecoration(
-                  color: AppColors.card,
-                  borderRadius: BorderRadius.circular(20),
-                  border: Border.all(color: isHovered ? color.withOpacity(0.5) : AppColors.border),
-                  boxShadow: isHovered ? [BoxShadow(color: color.withOpacity(0.1), blurRadius: 24, offset: const Offset(0, 12))] : [],
-                ),
-                padding: const EdgeInsets.all(24.0),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    Row(
-                      children: [
-                        Container(
-                          padding: const EdgeInsets.all(10),
-                          decoration: BoxDecoration(color: color.withOpacity(0.1), borderRadius: BorderRadius.circular(12)),
-                          child: Icon(icon, size: 20, color: color),
-                        ),
-                        const SizedBox(width: 16),
-                        Expanded(child: Text(subtitle, style: const TextStyle(fontSize: 12, color: AppColors.secondaryText, fontWeight: FontWeight.w600))),
-                      ],
-                    ),
-                    const SizedBox(height: 24),
-                    Text(title, style: const TextStyle(fontSize: 14, color: AppColors.secondaryText, fontWeight: FontWeight.w500)),
-                    const SizedBox(height: 4),
-                    Text(value, style: const TextStyle(fontSize: 26, fontWeight: FontWeight.bold, color: AppColors.text, letterSpacing: -1)),
-                  ],
-                ),
-              ),
+      child: MouseRegion(
+        cursor: onTap != null ? SystemMouseCursors.click : SystemMouseCursors.basic,
+        child: GestureDetector(
+          onTap: onTap,
+          child: Container(
+            padding: const EdgeInsets.all(32),
+            decoration: BoxDecoration(
+              color: AppColors.card,
+              borderRadius: BorderRadius.circular(24),
+              border: Border.all(color: AppColors.border),
             ),
-          );
-        }
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(title, style: const TextStyle(color: AppColors.secondaryText, fontWeight: FontWeight.w600, letterSpacing: 0.5), maxLines: 1, overflow: TextOverflow.ellipsis),
+                const SizedBox(height: 16),
+                FittedBox(
+                  fit: BoxFit.scaleDown,
+                  alignment: Alignment.centerLeft,
+                  child: Text(value, style: TextStyle(fontSize: 40, fontWeight: FontWeight.bold, color: color, letterSpacing: -1.5)),
+                ),
+                const SizedBox(height: 8),
+                Text(subtitle, style: const TextStyle(fontSize: 14, color: AppColors.secondaryText), maxLines: 1, overflow: TextOverflow.ellipsis),
+              ],
+            ),
+          ),
+        ),
       ),
     );
   }
   
   Widget _buildRollupCard(BuildContext context, {VoidCallback? onTap}) {
     return Expanded(
-      child: StatefulBuilder(
-        builder: (context, setState) {
-          bool isHovered = false;
-          return MouseRegion(
-            onEnter: (_) => setState(() => isHovered = true),
-            onExit: (_) => setState(() => isHovered = false),
-            child: GestureDetector(
-              onTap: onTap,
-              child: AnimatedContainer(
-                duration: const Duration(milliseconds: 200),
-                curve: Curves.easeOutQuart,
-                transform: Matrix4.translationValues(0, isHovered ? -4 : 0, 0),
-                decoration: BoxDecoration(
-                  color: AppColors.primary.withOpacity(0.05),
-                  borderRadius: BorderRadius.circular(20),
-                  border: Border.all(color: isHovered ? AppColors.primary : AppColors.primary.withOpacity(0.2)),
-                  boxShadow: isHovered ? [BoxShadow(color: AppColors.primary.withOpacity(0.2), blurRadius: 24, offset: const Offset(0, 12))] : [],
-                ),
-                padding: const EdgeInsets.all(24.0),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    Row(
-                      children: [
-                        Container(
-                          padding: const EdgeInsets.all(10),
-                          decoration: BoxDecoration(color: AppColors.primary.withOpacity(0.2), borderRadius: BorderRadius.circular(12)),
-                          child: const Icon(Icons.attach_money, size: 20, color: AppColors.primary),
-                        ),
-                        const SizedBox(width: 16),
-                        const Expanded(child: Text('P&L Roll-ups', style: TextStyle(fontSize: 12, color: AppColors.primary, fontWeight: FontWeight.w700))),
-                      ],
-                    ),
-                    const SizedBox(height: 24),
-                    const Text('Projected Rev.', style: TextStyle(fontSize: 14, color: AppColors.primary, fontWeight: FontWeight.w500)),
-                    const SizedBox(height: 4),
-                    const Text('₱ 1.2B', style: TextStyle(fontSize: 32, fontWeight: FontWeight.bold, color: AppColors.text, letterSpacing: -1)),
-                  ],
-                ),
-              ),
+      child: MouseRegion(
+        cursor: onTap != null ? SystemMouseCursors.click : SystemMouseCursors.basic,
+        child: GestureDetector(
+          onTap: onTap,
+          child: Container(
+            padding: const EdgeInsets.all(32),
+            decoration: BoxDecoration(
+              color: AppColors.primary.withOpacity(0.05),
+              borderRadius: BorderRadius.circular(24),
+              border: Border.all(color: AppColors.primary.withOpacity(0.2)),
             ),
-          );
-        }
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text('P&L Roll-ups', style: TextStyle(color: AppColors.primary, fontWeight: FontWeight.w600, letterSpacing: 0.5), maxLines: 1, overflow: TextOverflow.ellipsis),
+                const SizedBox(height: 16),
+                const FittedBox(
+                  fit: BoxFit.scaleDown,
+                  alignment: Alignment.centerLeft,
+                  child: Text('₱ 1.2B', style: TextStyle(fontSize: 40, fontWeight: FontWeight.bold, color: AppColors.text, letterSpacing: -1.5)),
+                ),
+                const SizedBox(height: 8),
+                const Text('Projected Revenue', style: TextStyle(fontSize: 14, color: AppColors.primary), maxLines: 1, overflow: TextOverflow.ellipsis),
+              ],
+            ),
+          ),
+        ),
       ),
     );
   }
