@@ -268,11 +268,20 @@ class _ValidationQueueScreenState extends ConsumerState<ValidationQueueScreen> {
                     children: [
                       const Text('TIMELINE', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: AppColors.secondaryText, letterSpacing: 1.2)),
                       const SizedBox(height: 24),
-                      _buildTimelineNode('Pending', isActive: status == 'pending', isPast: ['baw_approved', 'approved'].contains(status)),
-                      _buildTimelineNode('BAW Review', isActive: status == 'baw_approved', isPast: status == 'approved'),
-                      _buildTimelineNode('MAO Approval', isActive: status == 'approved', isPast: false, isLast: true),
+                      Expanded(
+                        child: SingleChildScrollView(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              _buildTimelineNode('Pending', isActive: status == 'pending', isPast: ['baw_approved', 'approved'].contains(status)),
+                              _buildTimelineNode('BAW Review', isActive: status == 'baw_approved', isPast: status == 'approved'),
+                              _buildTimelineNode('MAO Approval', isActive: status == 'approved', isPast: false, isLast: true),
+                            ],
+                          ),
+                        ),
+                      ),
                       
-                      const Spacer(),
+                      const SizedBox(height: 16),
                       
                       if (_canReview(status, userRole)) ...[
                         const TextField(
@@ -319,13 +328,13 @@ class _ValidationQueueScreenState extends ConsumerState<ValidationQueueScreen> {
                          Container(
                            padding: const EdgeInsets.all(16),
                            decoration: BoxDecoration(color: AppColors.danger.withOpacity(0.1), borderRadius: BorderRadius.circular(12)),
-                           child: const Row(children: [Icon(Icons.cancel, color: AppColors.danger), SizedBox(width: 8), Text('Declaration Rejected', style: TextStyle(color: AppColors.danger, fontWeight: FontWeight.bold))]),
+                           child: const Row(children: [Icon(Icons.cancel, color: AppColors.danger), SizedBox(width: 8), Expanded(child: Text('Declaration Rejected', style: TextStyle(color: AppColors.danger, fontWeight: FontWeight.bold)))]),
                          )
                       ] else if (status == 'approved') ...[
                          Container(
                            padding: const EdgeInsets.all(16),
                            decoration: BoxDecoration(color: AppColors.primary.withOpacity(0.1), borderRadius: BorderRadius.circular(12)),
-                           child: const Row(children: [Icon(Icons.check_circle, color: AppColors.primary), SizedBox(width: 8), Text('Workflow Completed', style: TextStyle(color: AppColors.primary, fontWeight: FontWeight.bold))]),
+                           child: const Row(children: [Icon(Icons.check_circle, color: AppColors.primary), SizedBox(width: 8), Expanded(child: Text('Workflow Completed', style: TextStyle(color: AppColors.primary, fontWeight: FontWeight.bold)))]),
                          )
                       ]
                     ],
