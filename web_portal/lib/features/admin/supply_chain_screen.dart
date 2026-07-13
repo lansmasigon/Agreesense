@@ -96,7 +96,7 @@ class _SupplyChainScreenState extends ConsumerState<SupplyChainScreen> with Sing
                 // WHOLESALE / RETAIL CARDS
                 Row(
                   children: [
-                    Expanded(child: _buildChannelCard('Wholesale', wholesales.toString(), Icons.warehouse_rounded, AppColors.primary)),
+                    Expanded(child: _buildChannelCard('Buyer', '--', Icons.warehouse_rounded, AppColors.primary)),
                     const SizedBox(width: 24),
                     Expanded(child: _buildChannelCard('Market Channels', data.marketChannels.length.toString(), Icons.storefront_rounded, AppColors.information)),
                     const SizedBox(width: 24),
