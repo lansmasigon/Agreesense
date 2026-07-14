@@ -8,73 +8,113 @@ class ReportsData {
   final double totalArea;
   final double pendingArea;
   final Map<String, double> cropDistribution;
-  final List<MonthlyValidation> validationOverTime;
+  final Map<String, int> declarationStatus;
+  final Map<String, double> calamityTypeDistribution;
+  final List<MonthlyValidation> monthlyDeclarations;
+  final Map<String, double> topBarangays;
   final Map<String, double> barangaysAffectedByCalamity;
   
   ReportsData({
     required this.totalArea, 
     required this.pendingArea,
     Map<String, double>? cropDistribution,
-    required this.validationOverTime,
+    Map<String, int>? declarationStatus,
+    Map<String, double>? calamityTypeDistribution,
+    required this.monthlyDeclarations,
+    Map<String, double>? topBarangays,
     Map<String, double>? barangaysAffectedByCalamity,
   }) : cropDistribution = cropDistribution ?? {},
+       declarationStatus = declarationStatus ?? {},
+       calamityTypeDistribution = calamityTypeDistribution ?? {},
+       topBarangays = topBarangays ?? {},
        barangaysAffectedByCalamity = barangaysAffectedByCalamity ?? {};
 }
 
 class MonthlyValidation {
   final int month;
-  final double area;
-  MonthlyValidation(this.month, this.area);
+  final int count;
+  MonthlyValidation(this.month, this.count);
 }
 
 final reportsProvider = FutureProvider.autoDispose<ReportsData>((ref) async {
   final supabase = ref.watch(supabaseClientProvider);
   
-  final res = await supabase.from('crop_declarations').select('area_ha, status, created_at, crop_id');
-  final calamityRes = await supabase.from('calamity_reports').select('affected_area_ha, barangay, profiles(barangay)');
+  final res = await supabase.from('crop_declarations').select('area_ha, status, created_at, crop_id, profiles(barangay)');
+  final calamityRes = await supabase.from('calamity_reports').select('affected_area_ha, type, barangay, profiles(barangay)');
   
   double total = 0;
-  double pending = 0;
+  double pendingArea = 0;
   Map<String, double> distribution = {};
-  Map<int, double> monthlyMap = {};
-  Map<String, double> affectedBarangays = {};
+  Map<String, int> declarationStatus = {
+    'pending': 0,
+    'accepted': 0,
+    'approved_by_baw': 0,
+    'rejected': 0,
+  };
+  Map<int, int> monthlyMap = {};
+  Map<String, double> topBarangaysMap = {};
   
   for (var row in res as List) {
     final area = (row['area_ha'] as num).toDouble();
-    final status = row['status'];
+    final status = row['status'] as String? ?? 'pending';
     final createdAt = row['created_at'] != null ? DateTime.parse(row['created_at']) : DateTime.now();
     
-    if (status == 'approved') {
+    // Status count
+    final statusKey = declarationStatus.containsKey(status) ? status : 'pending';
+    declarationStatus[statusKey] = (declarationStatus[statusKey] ?? 0) + 1;
+
+    // Monthly count
+    final month = createdAt.month;
+    monthlyMap[month] = (monthlyMap[month] ?? 0) + 1;
+
+    // Top barangays by area
+    final brgy = row['profiles']?['barangay'] as String? ?? 'Unknown';
+    if (brgy.isNotEmpty && brgy != 'Unknown') {
+      topBarangaysMap[brgy] = (topBarangaysMap[brgy] ?? 0) + area;
+    }
+    
+    if (status == 'approved' || status == 'accepted' || status == 'approved_by_baw') {
       total += area;
       
       final cropId = row['crop_id'] as String? ?? 'unknown';
       final cropName = cropId.isEmpty ? cropId : cropId[0].toUpperCase() + cropId.substring(1).replaceAll('_', ' ');
           
       distribution[cropName] = (distribution[cropName] ?? 0) + area;
-      
-      final month = createdAt.month;
-      monthlyMap[month] = (monthlyMap[month] ?? 0) + area;
     } else if (status == 'pending') {
-      pending += area;
+      pendingArea += area;
     }
   }
 
+  Map<String, double> calamityTypeMap = {};
+  Map<String, double> affectedBarangays = {};
   for (var row in calamityRes as List) {
+    final type = row['type'] as String? ?? 'Unknown';
     final area = (row['affected_area_ha'] as num?)?.toDouble() ?? 0;
+    calamityTypeMap[type] = (calamityTypeMap[type] ?? 0) + 1;
+    
     final brgy = row['barangay'] ?? row['profiles']?['barangay'] ?? 'Unknown';
-    affectedBarangays[brgy] = (affectedBarangays[brgy] ?? 0) + area;
+    if (brgy != null && brgy.toString().isNotEmpty && brgy != 'Unknown') {
+      affectedBarangays[brgy] = (affectedBarangays[brgy] ?? 0) + area;
+    }
   }
   
-  List<MonthlyValidation> validationOverTime = [];
+  List<MonthlyValidation> monthlyDeclarations = [];
   for (int i = 1; i <= 12; i++) {
-    validationOverTime.add(MonthlyValidation(i, monthlyMap[i] ?? 0));
+    monthlyDeclarations.add(MonthlyValidation(i, monthlyMap[i] ?? 0));
   }
+  
+  // Sort and limit top barangays
+  final sortedBarangays = topBarangaysMap.entries.toList()..sort((a, b) => b.value.compareTo(a.value));
+  final Map<String, double> top5Barangays = Map.fromEntries(sortedBarangays.take(5));
   
   return ReportsData(
     totalArea: total, 
-    pendingArea: pending,
+    pendingArea: pendingArea,
     cropDistribution: distribution,
-    validationOverTime: validationOverTime,
+    declarationStatus: declarationStatus,
+    calamityTypeDistribution: calamityTypeMap,
+    monthlyDeclarations: monthlyDeclarations,
+    topBarangays: top5Barangays,
     barangaysAffectedByCalamity: affectedBarangays,
   );
 });
@@ -227,28 +267,55 @@ class ReportsScreen extends ConsumerWidget {
                 ),
                 const SizedBox(height: 48),
                 
-                // Charts Section Vertically Stacked
-                Container(
-                  width: double.infinity,
-                  height: 480,
-                  padding: const EdgeInsets.all(32),
-                  decoration: BoxDecoration(
-                    color: AppColors.card,
-                    borderRadius: BorderRadius.circular(24),
-                    border: Border.all(color: AppColors.border),
-                  ),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      const Text('Crop Distribution (Area)', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, letterSpacing: -0.5)),
-                      const SizedBox(height: 48),
-                      Expanded(
-                        child: data.cropDistribution.isEmpty
-                            ? const Center(child: Text('No data', style: TextStyle(color: AppColors.secondaryText)))
-                            : _buildCropDistributionChart(data.cropDistribution),
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Expanded(
+                      child: Container(
+                        height: 480,
+                        padding: const EdgeInsets.all(32),
+                        decoration: BoxDecoration(
+                          color: AppColors.card,
+                          borderRadius: BorderRadius.circular(24),
+                          border: Border.all(color: AppColors.border),
+                        ),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const Text('Declaration Status', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, letterSpacing: -0.5)),
+                            const SizedBox(height: 48),
+                            Expanded(
+                              child: _buildDoughnutChart(data.declarationStatus.map((k, v) => MapEntry(k.replaceAll('_', ' ').toUpperCase(), v.toDouble())), isInt: true, isStatus: true),
+                            ),
+                          ],
+                        ),
                       ),
-                    ],
-                  ),
+                    ),
+                    const SizedBox(width: 32),
+                    Expanded(
+                      child: Container(
+                        height: 480,
+                        padding: const EdgeInsets.all(32),
+                        decoration: BoxDecoration(
+                          color: AppColors.card,
+                          borderRadius: BorderRadius.circular(24),
+                          border: Border.all(color: AppColors.border),
+                        ),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const Text('Calamity Type Distribution', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, letterSpacing: -0.5)),
+                            const SizedBox(height: 48),
+                            Expanded(
+                              child: data.calamityTypeDistribution.isEmpty
+                                  ? const Center(child: Text('No calamity data', style: TextStyle(color: AppColors.secondaryText)))
+                                  : _buildDoughnutChart(data.calamityTypeDistribution, isInt: true),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ],
                 ),
                 const SizedBox(height: 32),
                 Row(
@@ -266,13 +333,14 @@ class ReportsScreen extends ConsumerWidget {
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            const Text('Validated Area Over Time (Months)', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, letterSpacing: -0.5)),
+                            const Text('Monthly Crop Declarations', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, letterSpacing: -0.5)),
                             const SizedBox(height: 48),
                             Expanded(
                               child: LineChart(
                                 LineChartData(
                                   minX: 1,
                                   maxX: 12,
+                                  minY: 0,
                                   gridData: const FlGridData(show: false),
                                   titlesData: FlTitlesData(
                                     bottomTitles: AxisTitles(
@@ -306,13 +374,12 @@ class ReportsScreen extends ConsumerWidget {
                                   borderData: FlBorderData(show: false),
                                   lineBarsData: [
                                     LineChartBarData(
-                                      spots: data.validationOverTime.map((e) => FlSpot(e.month.toDouble(), e.area)).toList(),
-                                      isCurved: true,
-                                      curveSmoothness: 0.35,
+                                      spots: data.monthlyDeclarations.map((e) => FlSpot(e.month.toDouble(), e.count.toDouble())).toList(),
+                                      isCurved: false,
                                       color: AppColors.primary,
                                       barWidth: 4,
                                       isStrokeCapRound: true,
-                                      dotData: const FlDotData(show: false),
+                                      dotData: const FlDotData(show: true),
                                       belowBarData: BarAreaData(
                                         show: true, 
                                         gradient: LinearGradient(
@@ -343,7 +410,92 @@ class ReportsScreen extends ConsumerWidget {
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            const Text('Barangays affected by Calamity', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, letterSpacing: -0.5)),
+                            const Text('Top Barangays by Declared Area', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, letterSpacing: -0.5)),
+                            const SizedBox(height: 48),
+                            Expanded(
+                              child: data.topBarangays.isEmpty
+                                  ? const Center(child: Text('No data', style: TextStyle(color: AppColors.secondaryText)))
+                                  : BarChart(
+                                      BarChartData(
+                                        gridData: const FlGridData(show: false),
+                                        alignment: BarChartAlignment.spaceAround,
+                                        titlesData: FlTitlesData(
+                                          bottomTitles: AxisTitles(
+                                            sideTitles: SideTitles(
+                                              showTitles: true,
+                                              reservedSize: 42,
+                                              getTitlesWidget: (value, meta) {
+                                                final keys = data.topBarangays.keys.toList();
+                                                if (value.toInt() >= 0 && value.toInt() < keys.length) {
+                                                  return Padding(
+                                                    padding: const EdgeInsets.only(top: 8.0),
+                                                    child: Text(
+                                                      keys[value.toInt()], 
+                                                      style: const TextStyle(fontSize: 11, color: AppColors.secondaryText),
+                                                    ),
+                                                  );
+                                                }
+                                                return const Text('');
+                                              },
+                                              interval: 1,
+                                            ),
+                                          ),
+                                          topTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+                                          rightTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+                                          leftTitles: AxisTitles(
+                                            sideTitles: SideTitles(
+                                              showTitles: true,
+                                              reservedSize: 48,
+                                              getTitlesWidget: (value, meta) {
+                                                return Padding(
+                                                  padding: const EdgeInsets.only(right: 8.0),
+                                                  child: Text('${value.toInt()} ha', style: const TextStyle(fontSize: 11, color: AppColors.secondaryText), maxLines: 1, overflow: TextOverflow.ellipsis),
+                                                );
+                                              },
+                                            )
+                                          ),
+                                        ),
+                                        borderData: FlBorderData(show: false),
+                                        barGroups: data.topBarangays.entries.toList().asMap().entries.map((entry) {
+                                          return BarChartGroupData(
+                                            x: entry.key,
+                                            barRods: [
+                                              BarChartRodData(
+                                                toY: entry.value.value,
+                                                color: AppColors.accent,
+                                                width: 24,
+                                                borderRadius: const BorderRadius.only(topLeft: Radius.circular(6), topRight: Radius.circular(6)),
+                                              )
+                                            ],
+                                          );
+                                        }).toList(),
+                                      ),
+                                      swapAnimationDuration: const Duration(milliseconds: 150),
+                                    ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 32),
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Expanded(
+                      child: Container(
+                        height: 480,
+                        padding: const EdgeInsets.all(32),
+                        decoration: BoxDecoration(
+                          color: AppColors.card,
+                          borderRadius: BorderRadius.circular(24),
+                          border: Border.all(color: AppColors.border),
+                        ),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const Text('Barangays Affected by Calamity', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, letterSpacing: -0.5)),
                             const SizedBox(height: 48),
                             Expanded(
                               child: data.barangaysAffectedByCalamity.isEmpty
@@ -351,17 +503,21 @@ class ReportsScreen extends ConsumerWidget {
                                   : BarChart(
                                       BarChartData(
                                         gridData: const FlGridData(show: false),
+                                        alignment: BarChartAlignment.spaceAround,
                                         titlesData: FlTitlesData(
                                           bottomTitles: AxisTitles(
                                             sideTitles: SideTitles(
                                               showTitles: true,
-                                              reservedSize: 42,
+                                              reservedSize: 60,
                                               getTitlesWidget: (value, meta) {
                                                 final keys = data.barangaysAffectedByCalamity.keys.toList();
                                                 if (value.toInt() >= 0 && value.toInt() < keys.length) {
                                                   return Padding(
-                                                    padding: const EdgeInsets.only(top: 16.0),
-                                                    child: Text(keys[value.toInt()], style: const TextStyle(fontSize: 11, color: AppColors.secondaryText)),
+                                                    padding: const EdgeInsets.only(top: 8.0),
+                                                    child: Text(
+                                                      keys[value.toInt()], 
+                                                      style: const TextStyle(fontSize: 11, color: AppColors.secondaryText),
+                                                    ),
                                                   );
                                                 }
                                                 return const Text('');
@@ -375,7 +531,6 @@ class ReportsScreen extends ConsumerWidget {
                                             sideTitles: SideTitles(
                                               showTitles: true, 
                                               reservedSize: 48, 
-                                              interval: 1,
                                               getTitlesWidget: (value, meta) => Text('${value.toInt()} ha', style: const TextStyle(fontSize: 11, color: AppColors.secondaryText))
                                             )
                                           ),
@@ -401,6 +556,30 @@ class ReportsScreen extends ConsumerWidget {
                         ),
                       ),
                     ),
+                    const SizedBox(width: 32),
+                    Expanded(
+                      child: Container(
+                        height: 480,
+                        padding: const EdgeInsets.all(32),
+                        decoration: BoxDecoration(
+                          color: AppColors.card,
+                          borderRadius: BorderRadius.circular(24),
+                          border: Border.all(color: AppColors.border),
+                        ),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const Text('Crop Distribution (Area)', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, letterSpacing: -0.5)),
+                            const SizedBox(height: 48),
+                            Expanded(
+                              child: data.cropDistribution.isEmpty
+                                  ? const Center(child: Text('No data', style: TextStyle(color: AppColors.secondaryText)))
+                                  : _buildCropDistributionChart(data.cropDistribution),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
                   ],
                 ),
               ],
@@ -413,11 +592,36 @@ class ReportsScreen extends ConsumerWidget {
     );
   }
 
-  Widget _buildCropDistributionChart(Map<String, double> distribution) {
-    final sortedEntries = distribution.entries.toList()..sort((a, b) => b.value.compareTo(a.value));
-    final allCrops = sortedEntries;
+  Widget _buildDoughnutChart(Map<String, double> distribution, {bool isInt = false, bool isStatus = false}) {
+    if (distribution.isEmpty || distribution.values.every((v) => v == 0)) {
+       return const Center(child: Text('No data', style: TextStyle(color: AppColors.secondaryText)));
+    }
     
-    final colors = [AppColors.primary, AppColors.secondary, AppColors.accent, AppColors.information, AppColors.warning, AppColors.danger, AppColors.text, AppColors.border, Colors.teal, Colors.purple];
+    final sortedEntries = distribution.entries.toList()..sort((a, b) => b.value.compareTo(a.value));
+    final defaultColors = [
+      AppColors.primary, 
+      Colors.orange, 
+      Colors.blue, 
+      Colors.red, 
+      Colors.purple, 
+      Colors.teal, 
+      Colors.pink, 
+      Colors.indigo,
+      AppColors.secondary, 
+      AppColors.accent
+    ];
+    
+    Color getColor(String key, int index) {
+      if (isStatus) {
+        final lowerKey = key.toLowerCase();
+        if (lowerKey == 'pending') return Colors.amber;
+        if (lowerKey == 'rejected') return Colors.red;
+        if (lowerKey == 'accepted') return Colors.blue;
+        if (lowerKey == 'approved by baw') return AppColors.primary;
+        return defaultColors[index % defaultColors.length];
+      }
+      return defaultColors[index % defaultColors.length];
+    }
     
     return Row(
       crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -427,23 +631,96 @@ class ReportsScreen extends ConsumerWidget {
           child: PieChart(
             PieChartData(
               sectionsSpace: 2,
-              centerSpaceRadius: 100,
-              sections: allCrops.asMap().entries.map((entry) {
-                final color = colors[entry.key % colors.length];
+              centerSpaceRadius: 60,
+              sections: sortedEntries.asMap().entries.map((entry) {
+                final color = getColor(entry.value.key, entry.key);
                 return PieChartSectionData(
                   color: color,
                   value: entry.value.value,
-                  title: '${(entry.value.value / allCrops.fold(0.0, (sum, e) => sum + e.value) * 100).toStringAsFixed(1)}%',
-                  radius: 50,
+                  title: isInt ? '${entry.value.value.toInt()}' : '${entry.value.value.toStringAsFixed(1)}',
+                  radius: 40,
                   titleStyle: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.white),
                 );
               }).toList(),
             ),
           ),
         ),
-        const SizedBox(width: 48),
+        const SizedBox(width: 32),
         Expanded(
-          flex: 3,
+          flex: 4,
+          child: ListView.separated(
+            itemCount: sortedEntries.length,
+            separatorBuilder: (context, index) => const Divider(color: AppColors.border, height: 16),
+            itemBuilder: (context, index) {
+              final entry = sortedEntries[index];
+              return Padding(
+                padding: const EdgeInsets.symmetric(vertical: 4.0),
+                child: Row(
+                  children: [
+                    Container(width: 16, height: 16, decoration: BoxDecoration(color: getColor(entry.key, index), borderRadius: BorderRadius.circular(4))),
+                    const SizedBox(width: 16),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(entry.key, style: const TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: AppColors.text), overflow: TextOverflow.ellipsis),
+                          const SizedBox(height: 4),
+                          Text(isInt ? '${entry.value.toInt()}' : '${entry.value.toStringAsFixed(1)}', style: const TextStyle(fontSize: 13, color: AppColors.secondaryText)),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              );
+            },
+          ),
+        )
+      ],
+    );
+  }
+
+  Widget _buildCropDistributionChart(Map<String, double> distribution) {
+    final sortedEntries = distribution.entries.toList()..sort((a, b) => b.value.compareTo(a.value));
+    final allCrops = sortedEntries;
+    
+    final colors = [
+      AppColors.primary, 
+      Colors.orange, 
+      Colors.blue, 
+      Colors.red, 
+      Colors.purple, 
+      Colors.teal, 
+      Colors.pink, 
+      Colors.indigo,
+      AppColors.secondary, 
+      AppColors.accent
+    ];
+    
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Expanded(
+          flex: 4,
+          child: PieChart(
+            PieChartData(
+              sectionsSpace: 2,
+              centerSpaceRadius: 60,
+              sections: allCrops.asMap().entries.map((entry) {
+                final color = colors[entry.key % colors.length];
+                return PieChartSectionData(
+                  color: color,
+                  value: entry.value.value,
+                  title: '${(entry.value.value / allCrops.fold(0.0, (sum, e) => sum + e.value) * 100).toStringAsFixed(1)}%',
+                  radius: 40,
+                  titleStyle: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.white),
+                );
+              }).toList(),
+            ),
+          ),
+        ),
+        const SizedBox(width: 32),
+        Expanded(
+          flex: 4,
           child: ListView.separated(
             itemCount: allCrops.length,
             separatorBuilder: (context, index) => const Divider(color: AppColors.border, height: 16),
