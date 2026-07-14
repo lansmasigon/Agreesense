@@ -7,8 +7,9 @@ import 'dart:math' as math;
 class SupplyChainData {
   final List<Map<String, dynamic>> marketChannels;
   final List<Map<String, dynamic>> cooperatives;
+  final List<Map<String, dynamic>> activities;
 
-  SupplyChainData({required this.marketChannels, required this.cooperatives});
+  SupplyChainData({required this.marketChannels, required this.cooperatives, required this.activities});
 }
 
 final supplyChainProvider = FutureProvider.autoDispose<SupplyChainData>((ref) async {
@@ -16,10 +17,17 @@ final supplyChainProvider = FutureProvider.autoDispose<SupplyChainData>((ref) as
 
   final mcRes = await supabase.from('market_channels').select();
   final coopRes = await supabase.from('cooperatives').select();
+  
+  // Fetch recent activities (crop declarations)
+  final activitiesRes = await supabase.from('crop_declarations')
+      .select('status, created_at, crop_id, profiles(full_name)')
+      .order('created_at', ascending: false)
+      .limit(5);
 
   return SupplyChainData(
     marketChannels: List<Map<String, dynamic>>.from(mcRes as List),
     cooperatives: List<Map<String, dynamic>>.from(coopRes as List),
+    activities: List<Map<String, dynamic>>.from(activitiesRes as List),
   );
 });
 
@@ -96,13 +104,13 @@ class _SupplyChainScreenState extends ConsumerState<SupplyChainScreen> with Sing
                 // WHOLESALE / RETAIL CARDS
                 Row(
                   children: [
-                    Expanded(child: _buildChannelCard('Buyer', '--', Icons.warehouse_rounded, AppColors.primary)),
+                    Expanded(child: _buildChannelCard(context, 'Buyer', '7', Icons.warehouse_rounded, AppColors.primary)),
                     const SizedBox(width: 24),
-                    Expanded(child: _buildChannelCard('Market Channels', data.marketChannels.length.toString(), Icons.storefront_rounded, AppColors.information)),
+                    Expanded(child: _buildChannelCard(context, 'Market Channels', data.marketChannels.length.toString(), Icons.storefront_rounded, AppColors.information)),
                     const SizedBox(width: 24),
-                    Expanded(child: _buildChannelCard('Cooperatives', data.cooperatives.length.toString(), Icons.domain_rounded, AppColors.accent)),
+                    Expanded(child: _buildChannelCard(context, 'Cooperatives', data.cooperatives.length.toString(), Icons.domain_rounded, AppColors.accent)),
                     const SizedBox(width: 24),
-                    Expanded(child: _buildChannelCard('Export', exports.toString(), Icons.flight_takeoff_rounded, AppColors.warning)),
+                    Expanded(child: _buildChannelCard(context, 'Export', exports.toString(), Icons.flight_takeoff_rounded, AppColors.warning)),
                   ],
                 ),
                 const SizedBox(height: 48),
@@ -223,6 +231,66 @@ class _SupplyChainScreenState extends ConsumerState<SupplyChainScreen> with Sing
                                 );
                               },
                             ),
+                          ),
+                          const SizedBox(height: 48),
+                          const Text('Institutional Buyers', style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold, letterSpacing: -0.5)),
+                          const SizedBox(height: 24),
+                          Container(
+                            decoration: BoxDecoration(
+                              color: AppColors.card,
+                              borderRadius: BorderRadius.circular(24),
+                              border: Border.all(color: AppColors.border),
+                            ),
+                            child: ListView.separated(
+                              shrinkWrap: true,
+                              physics: const NeverScrollableScrollPhysics(),
+                              itemCount: 7,
+                              separatorBuilder: (_, __) => const Divider(height: 1, color: AppColors.border),
+                              itemBuilder: (context, index) {
+                                final buyers = [
+                                  'Walang gutom program',
+                                  'Tesda',
+                                  'Region 6 BFP',
+                                  'Region 6 PNP',
+                                  'St. Pauls',
+                                  'Bantay kalusugan garin',
+                                  'Robinson'
+                                ];
+                                final buyer = buyers[index];
+                                
+                                return Container(
+                                  padding: const EdgeInsets.all(24),
+                                  child: Row(
+                                    children: [
+                                      Container(
+                                        padding: const EdgeInsets.all(12),
+                                        decoration: BoxDecoration(color: AppColors.background, borderRadius: BorderRadius.circular(12)),
+                                        child: const Icon(Icons.business_rounded, color: AppColors.secondaryText),
+                                      ),
+                                      const SizedBox(width: 20),
+                                      Expanded(
+                                        child: Column(
+                                          crossAxisAlignment: CrossAxisAlignment.start,
+                                          children: [
+                                            Text(buyer, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: AppColors.text)),
+                                            const SizedBox(height: 4),
+                                            Row(
+                                              children: [
+                                                Container(
+                                                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                                                  decoration: BoxDecoration(color: AppColors.border.withOpacity(0.5), borderRadius: BorderRadius.circular(8)),
+                                                  child: const Text('Institutional', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600)),
+                                                ),
+                                              ],
+                                            )
+                                          ],
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                );
+                              },
+                            ),
                           )
                         ],
                       ),
@@ -268,10 +336,36 @@ class _SupplyChainScreenState extends ConsumerState<SupplyChainScreen> with Sing
 
                           const Text('Activity Feed', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: AppColors.secondaryText, letterSpacing: 1.5)),
                           const SizedBox(height: 24),
-                          _buildGitHubFeedItem('Juan Dela Cruz', 'submitted', 'Tomato', '5 min ago'),
-                          _buildGitHubFeedItem('Maria Santos', 'approved', 'Eggplant', '8 min ago', isSuccess: true),
-                          _buildGitHubFeedItem('System', 'updated', 'Market Prices', '1 hr ago', isSystem: true),
-                          _buildGitHubFeedItem('Pedro Reyes', 'submitted', 'Rice', '2 hrs ago'),
+                          if (data.activities.isEmpty)
+                            const Text('No recent activity.', style: TextStyle(color: AppColors.secondaryText))
+                          else
+                            ...data.activities.map((activity) {
+                              final user = activity['profiles']?['full_name'] as String? ?? 'Unknown User';
+                              final status = activity['status'] as String? ?? 'submitted';
+                              final action = status == 'pending' ? 'submitted a' : status;
+                              final cropId = activity['crop_id'] as String? ?? 'crop';
+                              final target = cropId.isNotEmpty ? cropId[0].toUpperCase() + cropId.substring(1).replaceAll('_', ' ') : 'Crop';
+                              
+                              String timeStr = 'just now';
+                              if (activity['created_at'] != null) {
+                                final time = DateTime.parse(activity['created_at']);
+                                final diff = DateTime.now().difference(time);
+                                if (diff.inMinutes < 1) {
+                                  timeStr = 'just now';
+                                } else if (diff.inMinutes < 60) {
+                                  timeStr = '${diff.inMinutes} min ago';
+                                } else if (diff.inHours < 24) {
+                                  timeStr = '${diff.inHours} hrs ago';
+                                } else {
+                                  timeStr = '${diff.inDays} days ago';
+                                }
+                              }
+                              
+                              final isSuccess = status == 'approved' || status == 'accepted' || status == 'approved_by_baw';
+                              final isSystem = false;
+                              
+                              return _buildGitHubFeedItem(user, action, target, timeStr, isSuccess: isSuccess, isSystem: isSystem);
+                            }).toList(),
                         ],
                       ),
                     )
@@ -287,27 +381,33 @@ class _SupplyChainScreenState extends ConsumerState<SupplyChainScreen> with Sing
     );
   }
 
-  Widget _buildChannelCard(String title, String count, IconData icon, Color color) {
-    return Container(
-      padding: const EdgeInsets.all(24),
-      decoration: BoxDecoration(
-        color: AppColors.card,
-        borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: AppColors.border),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+  Widget _buildChannelCard(BuildContext context, String title, String count, IconData icon, Color color, {VoidCallback? onTap}) {
+    return MouseRegion(
+      cursor: onTap != null ? SystemMouseCursors.click : SystemMouseCursors.basic,
+      child: GestureDetector(
+        onTap: onTap,
+        child: Container(
+          padding: const EdgeInsets.all(24),
+          decoration: BoxDecoration(
+            color: AppColors.card,
+            borderRadius: BorderRadius.circular(20),
+            border: Border.all(color: AppColors.border),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text(title, style: const TextStyle(fontWeight: FontWeight.w600, color: AppColors.secondaryText)),
-              Icon(icon, color: color, size: 20),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Text(title, style: const TextStyle(fontWeight: FontWeight.w600, color: AppColors.secondaryText)),
+                  Icon(icon, color: color, size: 20),
+                ],
+              ),
+              const SizedBox(height: 16),
+              Text(count, style: const TextStyle(fontSize: 32, fontWeight: FontWeight.bold, letterSpacing: -1)),
             ],
           ),
-          const SizedBox(height: 16),
-          Text(count, style: const TextStyle(fontSize: 32, fontWeight: FontWeight.bold, letterSpacing: -1)),
-        ],
+        ),
       ),
     );
   }
