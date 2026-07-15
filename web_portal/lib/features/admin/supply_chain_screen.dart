@@ -73,7 +73,8 @@ class _SupplyChainScreenState extends ConsumerState<SupplyChainScreen> with Sing
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                // HERO GAUGE
+                // HERO GAUGE (Temporarily removed - to be implemented later)
+                /*
                 Center(
                   child: Column(
                     children: [
@@ -100,6 +101,7 @@ class _SupplyChainScreenState extends ConsumerState<SupplyChainScreen> with Sing
                   ),
                 ),
                 const SizedBox(height: 64),
+                */
 
                 // WHOLESALE / RETAIL CARDS
                 Row(
