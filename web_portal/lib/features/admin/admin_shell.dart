@@ -1,8 +1,61 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../providers/auth_provider.dart';
 import '../../core/theme/app_colors.dart';
+
+class _GlobalSearchBar extends StatefulWidget {
+  const _GlobalSearchBar({Key? key}) : super(key: key);
+
+  @override
+  State<_GlobalSearchBar> createState() => _GlobalSearchBarState();
+}
+
+class _GlobalSearchBarState extends State<_GlobalSearchBar> {
+  Timer? _debounce;
+  final TextEditingController _controller = TextEditingController();
+
+  @override
+  void dispose() {
+    _debounce?.cancel();
+    _controller.dispose();
+    super.dispose();
+  }
+
+  void _onSearchChanged(String query) {
+    if (_debounce?.isActive ?? false) _debounce!.cancel();
+    _debounce = Timer(const Duration(milliseconds: 500), () {
+      // Execute search logic here
+      debugPrint('Global search triggered for: $query');
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: 280,
+      height: 40,
+      decoration: BoxDecoration(
+        color: AppColors.card,
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: AppColors.border),
+      ),
+      child: TextField(
+        controller: _controller,
+        onChanged: _onSearchChanged,
+        decoration: const InputDecoration(
+          hintText: 'Search anything',
+          hintStyle: TextStyle(fontSize: 14, color: AppColors.secondaryText),
+          prefixIcon: Icon(Icons.search, size: 18, color: AppColors.secondaryText),
+          border: InputBorder.none,
+          contentPadding: EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+        ),
+        style: const TextStyle(fontSize: 14, color: AppColors.text),
+      ),
+    );
+  }
+}
 
 class AdminShell extends ConsumerWidget {
   final Widget child;
@@ -12,10 +65,11 @@ class AdminShell extends ConsumerWidget {
   int _calculateSelectedIndex(BuildContext context) {
     final String location = GoRouterState.of(context).uri.path;
     if (location.startsWith('/validation')) return 1;
-    if (location.startsWith('/calamities')) return 2;
-    if (location.startsWith('/supply-chain')) return 3;
-    if (location.startsWith('/reference-data')) return 4;
-    if (location.startsWith('/reports')) return 5;
+    if (location.startsWith('/logbook')) return 2;
+    if (location.startsWith('/calamities')) return 3;
+    if (location.startsWith('/supply-chain')) return 4;
+    if (location.startsWith('/reference-data')) return 5;
+    if (location.startsWith('/reports')) return 6;
     return 0;
   }
 
@@ -28,15 +82,18 @@ class AdminShell extends ConsumerWidget {
         context.go('/validation');
         break;
       case 2:
-        context.go('/calamities');
+        context.go('/logbook');
         break;
       case 3:
-        context.go('/supply-chain');
+        context.go('/calamities');
         break;
       case 4:
-        context.go('/reference-data');
+        context.go('/supply-chain');
         break;
       case 5:
+        context.go('/reference-data');
+        break;
+      case 6:
         context.go('/reports');
         break;
     }
@@ -152,15 +209,16 @@ class AdminShell extends ConsumerWidget {
                             children: [
                               buildNavSection('Overview'),
                               buildNavItem(0, 'Dashboard', Icons.grid_view_rounded),
+                              buildNavItem(2, 'Logbook', Icons.menu_book_rounded),
                               
                               buildNavSection('Workspace'),
                               buildNavItem(1, 'Validation Queue', Icons.check_circle_outline_rounded),
-                              buildNavItem(2, 'Calamities', Icons.warning_amber_rounded, disabled: userRole != 'mao'),
-                              buildNavItem(3, 'Supply Chain', Icons.local_shipping_outlined, disabled: userRole != 'mao'),
+                              buildNavItem(3, 'Calamities', Icons.warning_amber_rounded, disabled: userRole != 'mao'),
+                              buildNavItem(4, 'Supply Chain', Icons.local_shipping_outlined, disabled: userRole != 'mao'),
                               
                               buildNavSection('Data'),
-                              buildNavItem(4, 'Reference Data', Icons.table_chart_outlined, disabled: userRole != 'mao'),
-                              buildNavItem(5, 'Reports', Icons.bar_chart_rounded, disabled: userRole != 'mao' && userRole != 'technician'),
+                              buildNavItem(5, 'Reference Data', Icons.table_chart_outlined, disabled: userRole != 'mao'),
+                              buildNavItem(6, 'Reports', Icons.bar_chart_rounded, disabled: userRole != 'mao' && userRole != 'technician'),
                             ],
                           );
                         }
@@ -226,28 +284,8 @@ class AdminShell extends ConsumerWidget {
                         children: [
                           const Spacer(),
                           // Simplified search placeholder
-                          Container(
-                            width: 280,
-                            height: 40,
-                            padding: const EdgeInsets.symmetric(horizontal: 16),
-                            decoration: BoxDecoration(
-                              color: AppColors.card,
-                              borderRadius: BorderRadius.circular(20),
-                              border: Border.all(color: AppColors.border),
-                            ),
-                            child: const Row(
-                              children: [
-                                Icon(Icons.search, size: 18, color: AppColors.secondaryText),
-                                SizedBox(width: 12),
-                                Text('Search anything', style: TextStyle(fontSize: 14, color: AppColors.secondaryText)),
-                              ],
-                            ),
-                          ),
+                          const _GlobalSearchBar(),
                           const SizedBox(width: 16),
-                          IconButton(
-                            icon: const Icon(Icons.notifications_outlined, color: AppColors.secondaryText),
-                            onPressed: () {},
-                          )
                         ],
                       ),
                     ),

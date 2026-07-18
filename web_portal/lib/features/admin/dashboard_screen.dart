@@ -66,20 +66,21 @@ final dashboardStatsProvider = FutureProvider.autoDispose<DashboardStats>((ref) 
     return id[0].toUpperCase() + id.substring(1).replaceAll('_', ' ');
   }
 
-  // 1. Pending validation
-  final pendingRes = await supabase
+  // 1. Available Harvest
+  final harvestRes = await supabase
       .from('crop_declarations')
-      .select('id, crop_id, area_ha, profiles(full_name)')
-      .eq('status', 'pending')
-      .order('created_at', ascending: false)
-      .limit(5);
-  final pendingCount = (await supabase.from('crop_declarations').select('id').eq('status', 'pending').count()).count ?? 0;
+      .select('id, crop_id, area_ha, barangay, expected_harvest_date, profiles(full_name)')
+      .eq('status', 'approved')
+      .order('expected_harvest_date', ascending: true)
+      .limit(4);
+  final pendingCount = (await supabase.from('crop_declarations').select('id').eq('status', 'approved').count()).count ?? 0;
   
-  final List<Map<String, dynamic>> pendingList = (pendingRes as List).map((e) {
+  final List<Map<String, dynamic>> pendingList = (harvestRes as List).map((e) {
     return {
       'farmer': e['profiles']?['full_name'] ?? 'Unknown',
       'crop': formatCropId(e['crop_id'] as String? ?? ''),
       'area': e['area_ha'] ?? 0.0,
+      'barangay': e['barangay'] ?? 'Unknown',
       'id': e['id']
     };
   }).toList();
@@ -219,6 +220,16 @@ final dashboardStatsProvider = FutureProvider.autoDispose<DashboardStats>((ref) 
   );
 });
 
+final farmersTableProvider = FutureProvider.autoDispose<List<Map<String, dynamic>>>((ref) async {
+  final supabase = ref.watch(supabaseClientProvider);
+  final res = await supabase
+      .from('profiles')
+      .select('id, full_name, barangay, contact_number, farms(total_area_ha), crop_declarations(crop_id, barangay, area_ha, created_at, status)')
+      .eq('role', 'farmer');
+
+  return List<Map<String, dynamic>>.from(res as List);
+});
+
 class DashboardScreen extends ConsumerStatefulWidget {
   const DashboardScreen({super.key});
 
@@ -228,6 +239,7 @@ class DashboardScreen extends ConsumerStatefulWidget {
 
 class _DashboardScreenState extends ConsumerState<DashboardScreen> {
   BarangayStats? _selectedBarangay;
+  String? _selectedFarmerId;
 
   void _showDetailsDialog(BuildContext context, String title, List<String> items) {
     showDialog(
@@ -407,7 +419,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                 children: [
                   // Baranggay Information
                   Expanded(
-                    flex: 2,
+                    flex: 5,
                     child: Container(
                       padding: const EdgeInsets.all(32),
                       decoration: BoxDecoration(
@@ -511,19 +523,19 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                   
                   // Validation Queue Cards
                   Expanded(
-                    flex: 1,
+                    flex: 3,
                     child: Column(
                       children: [
                         Row(
                           mainAxisAlignment: MainAxisAlignment.spaceBetween,
                           children: [
-                            const Text('Validation Queue', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, letterSpacing: -0.5)),
+                            const Text('Available Harvest', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, letterSpacing: -0.5)),
                             TextButton(onPressed: (){}, child: const Text('View All'))
                           ],
                         ),
                         const SizedBox(height: 16),
                         if (stats.pendingValidationList.isEmpty)
-                          const Padding(padding: EdgeInsets.all(32), child: Text('Queue is empty.', style: TextStyle(color: AppColors.secondaryText))),
+                          const Padding(padding: EdgeInsets.all(32), child: Text('No available harvest.', style: TextStyle(color: AppColors.secondaryText))),
                         ...stats.pendingValidationList.map((item) => Container(
                           margin: const EdgeInsets.only(bottom: 12),
                           padding: const EdgeInsets.all(20),
@@ -535,20 +547,22 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                           child: Row(
                             mainAxisAlignment: MainAxisAlignment.spaceBetween,
                             children: [
-                              Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Text(item['crop'], style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
-                                  const SizedBox(height: 4),
-                                  Text(item['farmer'], style: const TextStyle(fontSize: 13, color: AppColors.secondaryText)),
-                                ],
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(item['crop'], style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+                                    const SizedBox(height: 4),
+                                    Text('${item['farmer']} - ${item['barangay']}', style: const TextStyle(fontSize: 13, color: AppColors.secondaryText), maxLines: 1, overflow: TextOverflow.ellipsis),
+                                  ],
+                                ),
                               ),
                               Row(
                                 children: [
                                   Container(
                                     padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                                    decoration: BoxDecoration(color: AppColors.warning.withOpacity(0.1), borderRadius: BorderRadius.circular(12)),
-                                    child: const Text('Pending', style: TextStyle(color: AppColors.warning, fontSize: 11, fontWeight: FontWeight.bold)),
+                                    decoration: BoxDecoration(color: AppColors.accent.withOpacity(0.1), borderRadius: BorderRadius.circular(12)),
+                                    child: const Text('Harvested', style: TextStyle(color: AppColors.accent, fontSize: 11, fontWeight: FontWeight.bold)),
                                   ),
                                   const SizedBox(width: 12),
                                   Text('${item['area']} ha', style: const TextStyle(fontWeight: FontWeight.bold, color: AppColors.primary)),
@@ -674,7 +688,10 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                     ),
                   )
                 ],
-              )
+              ),
+              const SizedBox(height: 32),
+              
+              // Bottom charts (omitted farmers table)
             ],
           ),
         );
@@ -684,10 +701,187 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
     );
   }
 
+  Widget _buildFarmersTable() {
+    final farmersAsync = ref.watch(farmersTableProvider);
+    return Container(
+      padding: const EdgeInsets.all(32),
+      decoration: BoxDecoration(
+        color: AppColors.card,
+        borderRadius: BorderRadius.circular(24),
+        border: Border.all(color: AppColors.border),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text('Registered Farmers Overview', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, letterSpacing: -0.5)),
+          const SizedBox(height: 24),
+          farmersAsync.when(
+            data: (farmers) {
+              if (farmers.isEmpty) return const Text('No farmers found.');
+              
+              final selectedFarmer = _selectedFarmerId != null ? farmers.firstWhere((f) => f['id'] == _selectedFarmerId, orElse: () => farmers.first) : farmers.first;
+              
+              return Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  // Farmer Search Dropdown
+                  DropdownMenu<String>(
+                    initialSelection: selectedFarmer['id'] as String?,
+                    width: 400,
+                    enableFilter: true,
+                    enableSearch: true,
+                    leadingIcon: const Icon(Icons.search),
+                    hintText: 'Search for a farmer...',
+                    inputDecorationTheme: InputDecorationTheme(
+                      filled: true,
+                      fillColor: AppColors.background,
+                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: const BorderSide(color: AppColors.border)),
+                      contentPadding: const EdgeInsets.symmetric(horizontal: 16),
+                    ),
+                    onSelected: (String? val) {
+                      if (val != null) {
+                        setState(() => _selectedFarmerId = val);
+                      }
+                    },
+                    dropdownMenuEntries: farmers.map<DropdownMenuEntry<String>>((f) {
+                      return DropdownMenuEntry<String>(
+                        value: f['id'] as String,
+                        label: f['full_name'] ?? 'Unknown',
+                      );
+                    }).toList(),
+                  ),
+                  const SizedBox(height: 24),
+                  
+                  // Main Content Area
+                  Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      // LEFT: Farmer Information
+                      Expanded(
+                        flex: 1,
+                        child: Container(
+                          height: 450,
+                          padding: const EdgeInsets.all(24),
+                          decoration: BoxDecoration(border: Border.all(color: AppColors.border), borderRadius: BorderRadius.circular(12)),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              CircleAvatar(
+                                radius: 32,
+                                backgroundColor: AppColors.primary.withOpacity(0.1),
+                                child: Text((selectedFarmer['full_name'] ?? 'U')[0].toUpperCase(), style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: AppColors.primary)),
+                              ),
+                              const SizedBox(height: 16),
+                              Text(selectedFarmer['full_name'] ?? 'Unknown', style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
+                              const SizedBox(height: 24),
+                              _buildBrgyDetail('Barangay', selectedFarmer['barangay'] ?? 'N/A', Icons.location_on_outlined),
+                              _buildBrgyDetail('Contact', selectedFarmer['contact_number'] ?? 'N/A', Icons.phone_outlined),
+                              Builder(
+                                builder: (context) {
+                                  final farms = selectedFarmer['farms'] as List<dynamic>? ?? [];
+                                  double totalArea = 0;
+                                  for (var f in farms) {
+                                    totalArea += (f['total_area_ha'] as num?)?.toDouble() ?? 0;
+                                  }
+                                  return _buildBrgyDetail('Total Farm Area', '$totalArea ha', Icons.landscape_outlined);
+                                }
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 24),
+                      // RIGHT: Planted Crops List
+                      Expanded(
+                        flex: 2,
+                        child: Container(
+                          height: 450,
+                          padding: const EdgeInsets.all(24),
+                          decoration: BoxDecoration(border: Border.all(color: AppColors.border), borderRadius: BorderRadius.circular(12)),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              const Text('All Planted Crops', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                              const SizedBox(height: 16),
+                              Expanded(
+                                child: Builder(
+                                  builder: (context) {
+                                    final cropsList = selectedFarmer['crop_declarations'] as List<dynamic>? ?? [];
+                                    final crops = List<dynamic>.from(cropsList);
+                                    crops.sort((a, b) {
+                                      final dateA = DateTime.tryParse(a['created_at'].toString()) ?? DateTime(2000);
+                                      final dateB = DateTime.tryParse(b['created_at'].toString()) ?? DateTime(2000);
+                                      return dateB.compareTo(dateA); // Latest first
+                                    });
+
+                                    if (crops.isEmpty) return const Center(child: Text('No plantings recorded.', style: TextStyle(color: AppColors.secondaryText)));
+                                    
+                                    return ListView.builder(
+                                      itemCount: crops.length,
+                                      itemBuilder: (context, index) {
+                                        final crop = crops[index];
+                                        return Card(
+                                          elevation: 0,
+                                          color: AppColors.background,
+                                          margin: const EdgeInsets.only(bottom: 12),
+                                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12), side: const BorderSide(color: AppColors.border)),
+                                          child: ListTile(
+                                            contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
+                                            leading: Container(
+                                              padding: const EdgeInsets.all(10),
+                                              decoration: BoxDecoration(color: AppColors.primary.withOpacity(0.1), borderRadius: BorderRadius.circular(8)),
+                                              child: const Icon(Icons.eco, color: AppColors.primary, size: 20),
+                                            ),
+                                            title: Text((crop['crop_id'] as String? ?? '').toUpperCase(), style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15)),
+                                            subtitle: Padding(
+                                              padding: const EdgeInsets.only(top: 4.0),
+                                              child: Text('${crop['barangay'] ?? 'N/A'} • ${crop['area_ha'] ?? 0} hectares'),
+                                            ),
+                                            trailing: Column(
+                                              mainAxisAlignment: MainAxisAlignment.center,
+                                              crossAxisAlignment: CrossAxisAlignment.end,
+                                              children: [
+                                                Text((crop['status'] as String? ?? 'pending').toUpperCase(), style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: _getStatusColor(crop['status']))),
+                                                const SizedBox(height: 4),
+                                                Text(crop['created_at'] != null ? crop['created_at'].toString().split('T').first : '', style: const TextStyle(color: AppColors.secondaryText, fontSize: 12)),
+                                              ],
+                                            ),
+                                          ),
+                                        );
+                                      }
+                                    );
+                                  }
+                                )
+                              )
+                            ],
+                          ),
+                        ),
+                      )
+                    ],
+                  )
+                ],
+              );
+            },
+            loading: () => const Center(child: CircularProgressIndicator()),
+            error: (err, _) => Text('Error loading farmers: $err'),
+          )
+        ],
+      ),
+    );
+  }
+
+  Color _getStatusColor(String? status) {
+    if (status == 'approved') return AppColors.primary;
+    if (status == 'rejected') return AppColors.danger;
+    if (status == 'baw_approved') return AppColors.information;
+    return AppColors.warning;
+  }
+
   Widget _buildBrgyDetail(String label, String value, IconData icon) {
     return Padding(
       padding: const EdgeInsets.only(bottom: 20.0),
       child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Container(
             padding: const EdgeInsets.all(12),
@@ -695,13 +889,15 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
             child: Icon(icon, color: AppColors.primary, size: 20),
           ),
           const SizedBox(width: 16),
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(label, style: const TextStyle(color: AppColors.secondaryText, fontSize: 13)),
-              const SizedBox(height: 2),
-              Text(value, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 18, color: AppColors.text)),
-            ],
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(label, style: const TextStyle(color: AppColors.secondaryText, fontSize: 13)),
+                const SizedBox(height: 2),
+                Text(value, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 18, color: AppColors.text), maxLines: 2, overflow: TextOverflow.ellipsis),
+              ],
+            ),
           )
         ],
       ),

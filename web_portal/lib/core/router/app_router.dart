@@ -4,6 +4,7 @@ import 'package:go_router/go_router.dart';
 import '../../features/admin/admin_shell.dart';
 import '../../features/admin/dashboard_screen.dart';
 import '../../features/admin/validation_queue_screen.dart';
+import '../../features/admin/logbook_screen.dart';
 import '../../features/admin/supply_chain_screen.dart';
 import '../../features/admin/calamities_screen.dart';
 import '../../features/admin/reference_data_screen.dart';
@@ -39,6 +40,10 @@ final appRouterProvider = Provider<GoRouter>((ref) {
           GoRoute(
             path: '/validation',
             builder: (context, state) => const ValidationQueueScreen(),
+          ),
+          GoRoute(
+            path: '/logbook',
+            builder: (context, state) => const LogbookScreen(),
           ),
           GoRoute(
             path: '/supply-chain',
