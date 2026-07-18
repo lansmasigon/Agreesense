@@ -246,10 +246,7 @@ class ReportsScreen extends ConsumerWidget {
                         );
                       }
                     ),
-                    const SizedBox(width: 24),
-                    _buildSummaryCard(context, 'Corn (Q3)', '22k MT', AppColors.information, 'Production Forecast', onTap: () {
-                      _showDetailsDialog(context, 'Corn (Q3) Forecast', ['Based on 5,500 ha of validated area.', 'Expected yield: 4 MT/ha.']);
-                    }),
+
                     const SizedBox(width: 24),
                     _buildSummaryCard(context, 'Total Area', '${data.totalArea.toStringAsFixed(0)} ha', AppColors.accent, 'Validated Area', onTap: () {
                       final items = data.cropDistribution.entries.map((e) => '${e.key}: ${e.value.toStringAsFixed(1)} ha').toList();

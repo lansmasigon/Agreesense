@@ -8,7 +8,7 @@ final validationQueueProvider = FutureProvider.autoDispose<List<Map<String, dyna
   final supabase = ref.watch(supabaseClientProvider);
   final res = await supabase
       .from('crop_declarations')
-      .select('*, profiles(full_name)')
+      .select('*, profiles(full_name), declaration_reviews(note, reviewer_role)')
       .order('created_at', ascending: false);
   return List<Map<String, dynamic>>.from(res as List);
 });
@@ -24,6 +24,7 @@ class _ValidationQueueScreenState extends ConsumerState<ValidationQueueScreen> {
   String _selectedStatus = 'All';
   final List<String> _statuses = ['All', 'pending', 'baw_approved', 'approved', 'rejected'];
   Map<String, dynamic>? _selectedDeclaration;
+  final TextEditingController _remarksController = TextEditingController();
 
   String _formatCropId(String id) {
     if (id.isEmpty) return id;
@@ -33,6 +34,7 @@ class _ValidationQueueScreenState extends ConsumerState<ValidationQueueScreen> {
   void _closeDrawer() {
     setState(() {
       _selectedDeclaration = null;
+      _remarksController.clear();
     });
   }
 
@@ -239,18 +241,31 @@ class _ValidationQueueScreenState extends ConsumerState<ValidationQueueScreen> {
                       _buildInfoRow('Area', '${declaration['area_ha']} ha'),
                       _buildInfoRow('Barangay', declaration['barangay'] ?? 'N/A'),
                       const SizedBox(height: 32),
-                      const Text('DOCUMENTS', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: AppColors.secondaryText, letterSpacing: 1.2)),
+                      const Text('REMARKS', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: AppColors.secondaryText, letterSpacing: 1.2)),
                       const SizedBox(height: 16),
-                      Container(
-                        padding: const EdgeInsets.all(12),
-                        decoration: BoxDecoration(border: Border.all(color: AppColors.border), borderRadius: BorderRadius.circular(8)),
-                        child: const Row(
-                          children: [
-                            Icon(Icons.insert_drive_file_outlined, color: AppColors.primary, size: 16),
-                            SizedBox(width: 8),
-                            Text('Land_Title.pdf', style: TextStyle(fontSize: 13, color: AppColors.text)),
-                          ],
-                        ),
+                      Builder(
+                        builder: (context) {
+                          final reviews = declaration['declaration_reviews'] as List<dynamic>? ?? [];
+                          if (reviews.isEmpty) {
+                            return const Text('No remarks yet.', style: TextStyle(fontSize: 13, color: AppColors.secondaryText));
+                          }
+                          return Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: reviews.map((r) => Container(
+                              margin: const EdgeInsets.only(bottom: 8),
+                              padding: const EdgeInsets.all(12),
+                              decoration: BoxDecoration(color: AppColors.background, borderRadius: BorderRadius.circular(8)),
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text((r['reviewer_role'] as String? ?? 'Unknown').toUpperCase(), style: const TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: AppColors.primary)),
+                                  const SizedBox(height: 4),
+                                  Text(r['note'] as String? ?? 'No note', style: const TextStyle(fontSize: 13, color: AppColors.text)),
+                                ],
+                              ),
+                            )).toList(),
+                          );
+                        }
                       )
                     ],
                   ),
@@ -284,8 +299,9 @@ class _ValidationQueueScreenState extends ConsumerState<ValidationQueueScreen> {
                       const SizedBox(height: 16),
                       
                       if (_canReview(status, userRole)) ...[
-                        const TextField(
-                          decoration: InputDecoration(
+                        TextField(
+                          controller: _remarksController,
+                          decoration: const InputDecoration(
                             hintText: 'Add remarks...',
                             filled: true,
                             fillColor: AppColors.card,
@@ -299,7 +315,7 @@ class _ValidationQueueScreenState extends ConsumerState<ValidationQueueScreen> {
                           children: [
                             Expanded(
                               child: OutlinedButton(
-                                onPressed: () => _updateStatus(id, 'rejected'),
+                                onPressed: () => _updateStatus(id, 'rejected', userRole),
                                 style: OutlinedButton.styleFrom(
                                   padding: const EdgeInsets.symmetric(vertical: 16),
                                   foregroundColor: AppColors.danger,
@@ -312,7 +328,7 @@ class _ValidationQueueScreenState extends ConsumerState<ValidationQueueScreen> {
                             const SizedBox(width: 12),
                             Expanded(
                               child: ElevatedButton(
-                                onPressed: () => _updateStatus(id, _getNextStatus(status)),
+                                onPressed: () => _updateStatus(id, _getNextStatus(status), userRole),
                                 style: ElevatedButton.styleFrom(
                                   padding: const EdgeInsets.symmetric(vertical: 16),
                                   backgroundColor: AppColors.primary,
@@ -413,8 +429,25 @@ class _ValidationQueueScreenState extends ConsumerState<ValidationQueueScreen> {
     return current;
   }
 
-  Future<void> _updateStatus(String id, String newStatus) async {
-    await ref.read(supabaseClientProvider).from('crop_declarations').update({'status': newStatus}).eq('id', id);
+  Future<void> _updateStatus(String id, String newStatus, String? userRole) async {
+    final supabase = ref.read(supabaseClientProvider);
+    await supabase.from('crop_declarations').update({'status': newStatus}).eq('id', id);
+    
+    if (_remarksController.text.isNotEmpty) {
+      final user = ref.read(currentUserProvider);
+      final userId = user?['id'] as String?;
+      if (userId != null) {
+        await supabase.from('declaration_reviews').insert({
+          'declaration_id': id,
+          'reviewer_id': userId,
+          'reviewer_role': userRole ?? 'admin',
+          'from_status': _selectedDeclaration?['status'],
+          'to_status': newStatus,
+          'note': _remarksController.text,
+        });
+      }
+    }
+    
     ref.invalidate(validationQueueProvider);
     _closeDrawer();
   }

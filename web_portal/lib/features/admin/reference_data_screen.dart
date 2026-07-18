@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:fl_chart/fl_chart.dart';
@@ -42,10 +43,12 @@ class _ReferenceDataScreenState extends ConsumerState<ReferenceDataScreen> {
   int _selectedTab = 0;
   Set<String> _selectedIds = {}; // For multi-select
   String _searchQuery = '';
+  Timer? _debounce;
   final ScrollController _horizontalScrollController = ScrollController();
 
   @override
   void dispose() {
+    _debounce?.cancel();
     _horizontalScrollController.dispose();
     super.dispose();
   }
@@ -117,7 +120,12 @@ class _ReferenceDataScreenState extends ConsumerState<ReferenceDataScreen> {
                           const SizedBox(width: 8),
                           Expanded(
                             child: TextField(
-                              onChanged: (val) => setState(() => _searchQuery = val),
+                              onChanged: (val) {
+                                if (_debounce?.isActive ?? false) _debounce!.cancel();
+                                _debounce = Timer(const Duration(milliseconds: 500), () {
+                                  setState(() => _searchQuery = val);
+                                });
+                              },
                               style: const TextStyle(fontSize: 13),
                               decoration: const InputDecoration(border: InputBorder.none, hintText: 'Search records...', hintStyle: TextStyle(color: AppColors.secondaryText)),
                             ),
