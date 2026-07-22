@@ -6,7 +6,7 @@ import '../../core/theme/app_colors.dart';
 
 class ReportsData {
   final double totalArea;
-  final double pendingArea;
+  final int noDeclaredAreaBarangays;
   final Map<String, double> cropDistribution;
   final Map<String, int> declarationStatus;
   final Map<String, double> calamityTypeDistribution;
@@ -16,7 +16,7 @@ class ReportsData {
   
   ReportsData({
     required this.totalArea, 
-    required this.pendingArea,
+    required this.noDeclaredAreaBarangays,
     Map<String, double>? cropDistribution,
     Map<String, int>? declarationStatus,
     Map<String, double>? calamityTypeDistribution,
@@ -43,7 +43,7 @@ final reportsProvider = FutureProvider.autoDispose<ReportsData>((ref) async {
   final calamityRes = await supabase.from('calamity_reports').select('affected_area_ha, type, barangay, profiles(barangay)');
   
   double total = 0;
-  double pendingArea = 0;
+  int noDeclaredAreaBarangays = 0;
   Map<String, double> distribution = {};
   Map<String, int> declarationStatus = {
     'pending': 0,
@@ -53,6 +53,7 @@ final reportsProvider = FutureProvider.autoDispose<ReportsData>((ref) async {
   };
   Map<int, int> monthlyMap = {};
   Map<String, double> topBarangaysMap = {};
+  Set<String> allBarangaysWithDeclarations = {};
   
   for (var row in res as List) {
     final area = (row['area_ha'] as num).toDouble();
@@ -67,23 +68,28 @@ final reportsProvider = FutureProvider.autoDispose<ReportsData>((ref) async {
     final month = createdAt.month;
     monthlyMap[month] = (monthlyMap[month] ?? 0) + 1;
 
-    // Top barangays by area
-    final brgy = row['profiles']?['barangay'] as String? ?? 'Unknown';
-    if (brgy.isNotEmpty && brgy != 'Unknown') {
-      topBarangaysMap[brgy] = (topBarangaysMap[brgy] ?? 0) + area;
-    }
-    
-    if (status == 'approved' || status == 'accepted' || status == 'approved_by_baw') {
+    if (status == 'active' || status == 'harvested') {
+      // Top barangays by area
+      final brgy = row['profiles']?['barangay'] as String? ?? 'Unknown';
+      if (brgy.isNotEmpty && brgy != 'Unknown') {
+        topBarangaysMap[brgy] = (topBarangaysMap[brgy] ?? 0) + area;
+        allBarangaysWithDeclarations.add(brgy);
+      }
+      
       total += area;
       
       final cropId = row['crop_id'] as String? ?? 'unknown';
       final cropName = cropId.isEmpty ? cropId : cropId[0].toUpperCase() + cropId.substring(1).replaceAll('_', ' ');
           
       distribution[cropName] = (distribution[cropName] ?? 0) + area;
-    } else if (status == 'pending') {
-      pendingArea += area;
     }
   }
+
+  // Calculate barangays with no declarations
+  // Assuming a fixed total list of 48 barangays in Tubungan for this example
+  const totalBarangaysCount = 48;
+  noDeclaredAreaBarangays = totalBarangaysCount - allBarangaysWithDeclarations.length;
+  if (noDeclaredAreaBarangays < 0) noDeclaredAreaBarangays = 0;
 
   Map<String, double> calamityTypeMap = {};
   Map<String, double> affectedBarangays = {};
@@ -109,7 +115,7 @@ final reportsProvider = FutureProvider.autoDispose<ReportsData>((ref) async {
   
   return ReportsData(
     totalArea: total, 
-    pendingArea: pendingArea,
+    noDeclaredAreaBarangays: noDeclaredAreaBarangays,
     cropDistribution: distribution,
     declarationStatus: declarationStatus,
     calamityTypeDistribution: calamityTypeMap,
@@ -253,12 +259,8 @@ class ReportsScreen extends ConsumerWidget {
                       _showDetailsDialog(context, 'Total Declared Area', items);
                     }),
                     const SizedBox(width: 24),
-                    _buildSummaryCard(context, 'Pending', '${data.pendingArea.toStringAsFixed(0)} ha', AppColors.warning, 'For Processing', onTap: () {
-                      _showDetailsDialog(context, 'Pending Processing Area', ['Total pending area: ${data.pendingArea.toStringAsFixed(1)} ha across all barangays.']);
-                    }),
-                    const SizedBox(width: 24),
-                    _buildRollupCard(context, onTap: () {
-                      _showDetailsDialog(context, 'P&L Roll-ups', ['Rice projected revenue: ₱ 900M', 'Corn projected revenue: ₱ 300M']);
+                    _buildSummaryCard(context, 'No Declarations', '${data.noDeclaredAreaBarangays}', AppColors.warning, 'Barangays Pending', onTap: () {
+                      _showDetailsDialog(context, 'Barangays without Declarations', ['There are ${data.noDeclaredAreaBarangays} barangays without any active crop declarations.']);
                     }),
                   ],
                 ),
@@ -267,28 +269,6 @@ class ReportsScreen extends ConsumerWidget {
                 Row(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Expanded(
-                      child: Container(
-                        height: 480,
-                        padding: const EdgeInsets.all(32),
-                        decoration: BoxDecoration(
-                          color: AppColors.card,
-                          borderRadius: BorderRadius.circular(24),
-                          border: Border.all(color: AppColors.border),
-                        ),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            const Text('Declaration Status', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, letterSpacing: -0.5)),
-                            const SizedBox(height: 48),
-                            Expanded(
-                              child: _buildDoughnutChart(data.declarationStatus.map((k, v) => MapEntry(k.replaceAll('_', ' ').toUpperCase(), v.toDouble())), isInt: true, isStatus: true),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ),
-                    const SizedBox(width: 32),
                     Expanded(
                       child: Container(
                         height: 480,
@@ -548,30 +528,6 @@ class ReportsScreen extends ConsumerWidget {
                                         }).toList(),
                                       ),
                                     ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ),
-                    const SizedBox(width: 32),
-                    Expanded(
-                      child: Container(
-                        height: 480,
-                        padding: const EdgeInsets.all(32),
-                        decoration: BoxDecoration(
-                          color: AppColors.card,
-                          borderRadius: BorderRadius.circular(24),
-                          border: Border.all(color: AppColors.border),
-                        ),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            const Text('Crop Distribution (Area)', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, letterSpacing: -0.5)),
-                            const SizedBox(height: 48),
-                            Expanded(
-                              child: data.cropDistribution.isEmpty
-                                  ? const Center(child: Text('No data', style: TextStyle(color: AppColors.secondaryText)))
-                                  : _buildCropDistributionChart(data.cropDistribution),
                             ),
                           ],
                         ),
