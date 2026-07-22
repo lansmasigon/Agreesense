@@ -71,10 +71,10 @@ final dashboardStatsProvider = FutureProvider.autoDispose<DashboardStats>((ref) 
   final harvestRes = await supabase
       .from('crop_declarations')
       .select('id, crop_id, area_ha, barangay, expected_harvest_date, profiles(full_name)')
-      .eq('status', 'approved')
+      .eq('status', 'active')
       .order('expected_harvest_date', ascending: true)
       .limit(4);
-  final pendingCount = (await supabase.from('crop_declarations').select('id').eq('status', 'approved').count()).count ?? 0;
+  final pendingCount = (await supabase.from('crop_declarations').select('id').eq('status', 'active').count()).count ?? 0;
   
   final List<Map<String, dynamic>> pendingList = (harvestRes as List).map((e) {
     return {
@@ -90,7 +90,7 @@ final dashboardStatsProvider = FutureProvider.autoDispose<DashboardStats>((ref) 
   final areaRes = await supabase
       .from('crop_declarations')
       .select('area_ha, barangay')
-      .eq('status', 'approved');
+      .eq('status', 'active');
   double totalArea = 0;
   final Map<String, double> brgyAreaMap = {};
   for (var row in areaRes as List) {
@@ -109,7 +109,7 @@ final dashboardStatsProvider = FutureProvider.autoDispose<DashboardStats>((ref) 
   final brgyRes = await supabase
       .from('crop_declarations')
       .select('barangay, farmer_id, area_ha, crop_id')
-      .eq('status', 'approved');
+      .eq('status', 'active');
 
   final Map<String, Set<String>> brgyFarmers = {};
   final Map<String, double> brgyArea = {};
@@ -157,9 +157,20 @@ final dashboardStatsProvider = FutureProvider.autoDispose<DashboardStats>((ref) 
     oversupplyCrops = ['None'];
   }
 
+  const allBarangays = [
+    "Adgao", "Ago", "Ambarihon", "Ayubo", "Bacan", "Bagunanay", "Badiang", 
+    "Balicua", "Bantayanan", "Zone I", "Zone II", "Zone III", "Batga", 
+    "Bato", "Bikil", "Boloc", "Bondoc", "Borong", "Buenavista", "Cadabdab", 
+    "Daga-ay", "Desposorio", "Igdampog Norte", "Igdampog Sur", "Igpaho", 
+    "Igtuble", "Ingay", "Isauan", "Jolason", "Jona", "La-ag", "Lanag Norte", 
+    "Lanag Sur", "Male", "Mayang", "Molina", "Morcillas", "Nagba", 
+    "Navillan", "Pinamacalan", "San Jose", "Sibucauan", "Singon", "Tabat", 
+    "Tagpu-an", "Talento", "Teniente Benito", "Victoria"
+  ];
+
   final List<BarangayStats> barangayStats = [];
-  for (final brgy in brgyArea.keys) {
-    String topCrop = 'Unknown';
+  for (final brgy in allBarangays) {
+    String topCrop = 'None';
     int maxCount = 0;
     if (brgyCropsCount[brgy] != null) {
       for (final entry in brgyCropsCount[brgy]!.entries) {
@@ -170,16 +181,19 @@ final dashboardStatsProvider = FutureProvider.autoDispose<DashboardStats>((ref) 
       }
     }
     
+    double area = brgyArea[brgy] ?? 0.0;
+    
     // Calculate dummy risk color based on area
-    Color rColor = AppColors.accent; // Green
-    if (brgyArea[brgy]! > 100) rColor = AppColors.warning; // Yellow
-    if (brgyArea[brgy]! > 500) rColor = const Color(0xFFF97316); // Orange
-    if (brgyArea[brgy]! > 1000) rColor = AppColors.danger; // Red
+    Color rColor = AppColors.background.withOpacity(0.5); // Default for 0
+    if (area > 0) rColor = AppColors.accent; // Green
+    if (area > 100) rColor = AppColors.warning; // Yellow
+    if (area > 500) rColor = const Color(0xFFF97316); // Orange
+    if (area > 1000) rColor = AppColors.danger; // Red
 
     barangayStats.add(BarangayStats(
       name: brgy,
       farmers: brgyFarmers[brgy]?.length ?? 0,
-      totalArea: brgyArea[brgy]!,
+      totalArea: area,
       topCrop: topCrop,
       riskColor: rColor,
       allCropsPlanted: brgyCropsCount[brgy]?.keys.toList() ?? [],
@@ -467,17 +481,18 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                                         primaryValueMapper: (int index) => stats.barangayStats[index].name,
                                         shapeColorValueMapper: (int index) => stats.barangayStats[index].totalArea,
                                         shapeColorMappers: [
-                                          const MapColorMapper(from: 0, to: 50, color: Color(0xFFC8E6C9)), // Light green
-                                          const MapColorMapper(from: 51, to: 200, color: Color(0xFF81C784)),
-                                          const MapColorMapper(from: 201, to: 500, color: Color(0xFF4CAF50)),
-                                          const MapColorMapper(from: 501, to: 1000, color: Color(0xFF388E3C)),
-                                          const MapColorMapper(from: 1001, to: 10000, color: Color(0xFF1B5E20)), // Dark green
+                                          const MapColorMapper(from: -1, to: 0.001, color: Color(0xFFEEEEEE)), // Gray for no value
+                                          const MapColorMapper(from: 0.001, to: 50, color: Color(0xFFC8E6C9)), // Light green
+                                          const MapColorMapper(from: 50.001, to: 200, color: Color(0xFF81C784)),
+                                          const MapColorMapper(from: 200.001, to: 500, color: Color(0xFF4CAF50)),
+                                          const MapColorMapper(from: 500.001, to: 1000, color: Color(0xFF388E3C)),
+                                          const MapColorMapper(from: 1000.001, to: 10000, color: Color(0xFF1B5E20)), // Dark green
                                         ],
                                       ),
                                       color: AppColors.background.withValues(alpha: 0.5), // Transparent for no-data
                                       strokeColor: Colors.grey.withValues(alpha: 0.5), // Inner barangay borders
                                       strokeWidth: 1.0,
-                                      showDataLabels: true,
+                                      showDataLabels: false,
                                       dataLabelSettings: const MapDataLabelSettings(
                                         textStyle: TextStyle(color: Colors.black87, fontSize: 10, fontWeight: FontWeight.bold),
                                       ),
@@ -975,7 +990,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
   }
 
   Color _getStatusColor(String? status) {
-    if (status == 'approved') return AppColors.primary;
+    if (status == 'active') return AppColors.primary;
     if (status == 'rejected') return AppColors.danger;
     if (status == 'baw_approved') return AppColors.information;
     return AppColors.warning;
