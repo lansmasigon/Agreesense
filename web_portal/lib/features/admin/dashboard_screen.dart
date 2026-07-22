@@ -1,42 +1,43 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:fl_chart/fl_chart.dart';
+import 'package:syncfusion_flutter_maps/maps.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../providers/auth_provider.dart';
 import '../../core/theme/app_colors.dart';
 
 class DashboardStats {
-  final int pendingValidation;
-  final double validatedArea;
+  final int pendingDeclarations;
+  final double totalArea;
   final int totalFarmers;
   final List<String> oversupplyCrops;
   final String oversupplyRiskLevel;
   final Color oversupplyRiskColor;
   final List<BarangayStats> barangayStats;
   final List<RecentActivity> recentActivities;
-  final List<Map<String, dynamic>> pendingValidationList; // Updated to Map for rich cards
+  final List<Map<String, dynamic>> pendingDeclarationsList; // Updated to Map for rich cards
   final List<String> farmersList;
-  final Map<String, double> validatedAreaByBarangay;
+  final Map<String, double> totalAreaByBarangay;
 
   DashboardStats({
-    required this.pendingValidation,
-    required this.validatedArea,
+    required this.pendingDeclarations,
+    required this.totalArea,
     required this.totalFarmers,
     required this.oversupplyCrops,
     required this.oversupplyRiskLevel,
     required this.oversupplyRiskColor,
     required this.barangayStats,
     required this.recentActivities,
-    required this.pendingValidationList,
+    required this.pendingDeclarationsList,
     required this.farmersList,
-    required this.validatedAreaByBarangay,
+    required this.totalAreaByBarangay,
   });
 }
 
 class BarangayStats {
   final String name;
   final int farmers;
-  final double validatedArea;
+  final double totalArea;
   final String topCrop;
   final Color riskColor;
   final List<String> allCropsPlanted;
@@ -44,7 +45,7 @@ class BarangayStats {
   BarangayStats({
     required this.name,
     required this.farmers,
-    required this.validatedArea,
+    required this.totalArea,
     required this.topCrop,
     required this.riskColor,
     required this.allCropsPlanted,
@@ -85,17 +86,17 @@ final dashboardStatsProvider = FutureProvider.autoDispose<DashboardStats>((ref) 
     };
   }).toList();
 
-  // 2. Validated area
+  // 2. Total area
   final areaRes = await supabase
       .from('crop_declarations')
       .select('area_ha, barangay')
       .eq('status', 'approved');
-  double validatedArea = 0;
+  double totalArea = 0;
   final Map<String, double> brgyAreaMap = {};
   for (var row in areaRes as List) {
     final area = (row['area_ha'] as num).toDouble();
     final brgy = row['barangay'] as String? ?? 'Unknown';
-    validatedArea += area;
+    totalArea += area;
     brgyAreaMap[brgy] = (brgyAreaMap[brgy] ?? 0) + area;
   }
 
@@ -178,13 +179,13 @@ final dashboardStatsProvider = FutureProvider.autoDispose<DashboardStats>((ref) 
     barangayStats.add(BarangayStats(
       name: brgy,
       farmers: brgyFarmers[brgy]?.length ?? 0,
-      validatedArea: brgyArea[brgy]!,
+      totalArea: brgyArea[brgy]!,
       topCrop: topCrop,
       riskColor: rColor,
       allCropsPlanted: brgyCropsCount[brgy]?.keys.toList() ?? [],
     ));
   }
-  barangayStats.sort((a, b) => b.validatedArea.compareTo(a.validatedArea));
+  barangayStats.sort((a, b) => b.totalArea.compareTo(a.totalArea));
 
   // 6. Recent activities
   final recentRes = await supabase
@@ -206,17 +207,17 @@ final dashboardStatsProvider = FutureProvider.autoDispose<DashboardStats>((ref) 
   }
 
   return DashboardStats(
-    pendingValidation: pendingCount,
-    validatedArea: validatedArea,
+    pendingDeclarations: pendingCount,
+    totalArea: totalArea,
     totalFarmers: totalFarmers,
     oversupplyCrops: oversupplyCrops,
     oversupplyRiskLevel: oversupplyRiskLevel,
     oversupplyRiskColor: oversupplyRiskColor,
     barangayStats: barangayStats,
     recentActivities: recentActivities,
-    pendingValidationList: pendingList,
+    pendingDeclarationsList: pendingList,
     farmersList: farmersList,
-    validatedAreaByBarangay: brgyAreaMap,
+    totalAreaByBarangay: brgyAreaMap,
   );
 });
 
@@ -240,6 +241,20 @@ class DashboardScreen extends ConsumerStatefulWidget {
 class _DashboardScreenState extends ConsumerState<DashboardScreen> {
   BarangayStats? _selectedBarangay;
   String? _selectedFarmerId;
+
+  late MapZoomPanBehavior _zoomPanBehavior;
+
+  @override
+  void initState() {
+    super.initState();
+    _zoomPanBehavior = MapZoomPanBehavior(
+      zoomLevel: 12,
+      focalLatLng: const MapLatLng(10.826, 122.285), // Approximate center of Tubungan
+      enableDoubleTapZooming: true,
+      enableMouseWheelZooming: true,
+      enablePinching: true,
+    );
+  }
 
   void _showDetailsDialog(BuildContext context, String title, List<String> items) {
     showDialog(
@@ -369,13 +384,13 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
               Row(
                 children: [
                   Expanded(child: _buildHoverCard(
-                    title: 'Pending Validation',
-                    value: '${stats.pendingValidation}',
+                    title: 'Pending Declarations',
+                    value: '${stats.pendingDeclarations}',
                     subtitle: '+12 today',
                     valueColor: AppColors.warning,
                     onTap: () {
-                      final items = stats.pendingValidationList.map((e) => '${e['farmer']} - ${e['crop']} (${e['area']} ha)').toList();
-                      _showDetailsDialog(context, 'Pending Validation', items);
+                      final items = stats.pendingDeclarationsList.map((e) => '${e['farmer']} - ${e['crop']} (${e['area']} ha)').toList();
+                      _showDetailsDialog(context, 'Pending Declarations', items);
                     }
                   )),
                   const SizedBox(width: 24),
@@ -390,13 +405,13 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                   )),
                   const SizedBox(width: 24),
                   Expanded(child: _buildHoverCard(
-                    title: 'Validated Area',
-                    value: '${stats.validatedArea.toStringAsFixed(0)} ha',
+                    title: 'Total Area',
+                    value: '${stats.totalArea.toStringAsFixed(0)} ha',
                     subtitle: 'Current Season',
                     valueColor: AppColors.information,
                     onTap: () {
-                      final list = stats.validatedAreaByBarangay.entries.map((e) => '${e.key}: ${e.value.toStringAsFixed(1)} ha').toList();
-                      _showDetailsDialog(context, 'Validated Area by Barangay', list);
+                      final list = stats.totalAreaByBarangay.entries.map((e) => '${e.key}: ${e.value.toStringAsFixed(1)} ha').toList();
+                      _showDetailsDialog(context, 'Total Area by Barangay', list);
                     }
                   )),
                   const SizedBox(width: 24),
@@ -409,6 +424,95 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                       _showDetailsDialog(context, 'Oversupply Crops', stats.oversupplyCrops);
                     }
                   )),
+                ],
+              ),
+              const SizedBox(height: 32),
+
+              // HEATMAP SECTION
+              Row(
+                children: [
+                  Expanded(
+                    child: Container(
+                      height: 500,
+                      padding: const EdgeInsets.all(32),
+                      decoration: BoxDecoration(
+                        color: AppColors.card,
+                        borderRadius: BorderRadius.circular(24),
+                        border: Border.all(color: AppColors.border),
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Text('Barangay Heatmap', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, letterSpacing: -0.5)),
+                          const Text('Total declared area distribution across barangays', style: TextStyle(color: AppColors.secondaryText, fontSize: 14)),
+                          const SizedBox(height: 24),
+                          Expanded(
+                            child: SfMaps(
+                              layers: [
+                                MapShapeLayer(
+                                  source: const MapShapeSource.asset(
+                                    'assets/Tubungan.geojson',
+                                    shapeDataField: 'ADM3_EN', 
+                                  ),
+                                  color: AppColors.background, 
+                                  strokeColor: AppColors.border, 
+                                  strokeWidth: 2.0,
+                                  zoomPanBehavior: _zoomPanBehavior,
+                                  sublayers: [
+                                    MapShapeSublayer(
+                                      source: MapShapeSource.asset(
+                                        'assets/TubunganBarangaysFiltered.geojson',
+                                        shapeDataField: 'adm4_en', // Changed from Brgy_Name to adm4_en
+                                        dataCount: stats.barangayStats.length,
+                                        primaryValueMapper: (int index) => stats.barangayStats[index].name,
+                                        shapeColorValueMapper: (int index) => stats.barangayStats[index].totalArea,
+                                        shapeColorMappers: [
+                                          const MapColorMapper(from: 0, to: 50, color: Color(0xFFC8E6C9)), // Light green
+                                          const MapColorMapper(from: 51, to: 200, color: Color(0xFF81C784)),
+                                          const MapColorMapper(from: 201, to: 500, color: Color(0xFF4CAF50)),
+                                          const MapColorMapper(from: 501, to: 1000, color: Color(0xFF388E3C)),
+                                          const MapColorMapper(from: 1001, to: 10000, color: Color(0xFF1B5E20)), // Dark green
+                                        ],
+                                      ),
+                                      color: AppColors.background.withValues(alpha: 0.5), // Transparent for no-data
+                                      strokeColor: Colors.grey.withValues(alpha: 0.5), // Inner barangay borders
+                                      strokeWidth: 1.0,
+                                      showDataLabels: true,
+                                      dataLabelSettings: const MapDataLabelSettings(
+                                        textStyle: TextStyle(color: Colors.black87, fontSize: 10, fontWeight: FontWeight.bold),
+                                      ),
+                                      shapeTooltipBuilder: (BuildContext context, int index) {
+                                        final brgy = stats.barangayStats[index];
+                                        return Padding(
+                                          padding: const EdgeInsets.all(12.0),
+                                          child: Column(
+                                            mainAxisSize: MainAxisSize.min,
+                                            crossAxisAlignment: CrossAxisAlignment.start,
+                                            children: [
+                                              Text(brgy.name, style: const TextStyle(fontWeight: FontWeight.bold, color: AppColors.text, fontSize: 14)),
+                                              const SizedBox(height: 4),
+                                              Text('Total Area: ${brgy.totalArea.toStringAsFixed(1)} ha', style: const TextStyle(color: AppColors.secondaryText, fontSize: 12)),
+                                              Text('Farmers: ${brgy.farmers}', style: const TextStyle(color: AppColors.secondaryText, fontSize: 12)),
+                                            ],
+                                          ),
+                                        );
+                                      },
+                                    ),
+                                  ],
+                                  legend: const MapLegend(MapElement.shape),
+                                  tooltipSettings: const MapTooltipSettings(
+                                    color: AppColors.card,
+                                    strokeColor: AppColors.border,
+                                    strokeWidth: 1,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
                 ],
               ),
               const SizedBox(height: 32),
@@ -494,7 +598,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                                             crossAxisAlignment: CrossAxisAlignment.start,
                                             children: [
                                               _buildBrgyDetail('Farmers', '${currentBarangay.farmers}', Icons.people_outline),
-                                              _buildBrgyDetail('Validated Area', '${currentBarangay.validatedArea.toStringAsFixed(1)} ha', Icons.location_on_outlined),
+                                              _buildBrgyDetail('Total Area', '${currentBarangay.totalArea.toStringAsFixed(1)} ha', Icons.location_on_outlined),
                                               _buildBrgyDetail('Yield Trend', 'Increasing', Icons.trending_up),
                                             ],
                                           ),
@@ -534,9 +638,9 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                           ],
                         ),
                         const SizedBox(height: 16),
-                        if (stats.pendingValidationList.isEmpty)
+                        if (stats.pendingDeclarationsList.isEmpty)
                           const Padding(padding: EdgeInsets.all(32), child: Text('No available harvest.', style: TextStyle(color: AppColors.secondaryText))),
-                        ...stats.pendingValidationList.map((item) => Container(
+                        ...stats.pendingDeclarationsList.map((item) => Container(
                           margin: const EdgeInsets.only(bottom: 12),
                           padding: const EdgeInsets.all(20),
                           decoration: BoxDecoration(
@@ -656,8 +760,8 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                                   return BarChartGroupData(
                                     x: entry.key,
                                     barRods: [
-                                      BarChartRodData(toY: entry.value.validatedArea, color: AppColors.primary, width: 24, borderRadius: BorderRadius.circular(4)),
-                                      BarChartRodData(toY: entry.value.validatedArea * 1.2, color: AppColors.border, width: 24, borderRadius: BorderRadius.circular(4)),
+                                      BarChartRodData(toY: entry.value.totalArea, color: AppColors.primary, width: 24, borderRadius: BorderRadius.circular(4)),
+                                      BarChartRodData(toY: entry.value.totalArea * 1.2, color: AppColors.border, width: 24, borderRadius: BorderRadius.circular(4)),
                                     ],
                                   );
                                 }).toList(),
