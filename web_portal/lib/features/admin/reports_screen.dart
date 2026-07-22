@@ -10,7 +10,7 @@ class ReportsData {
   final Map<String, double> cropDistribution;
   final Map<String, int> declarationStatus;
   final Map<String, double> calamityTypeDistribution;
-  final List<MonthlyValidation> monthlyDeclarations;
+  final List<MonthlyDeclaration> monthlyDeclarations;
   final Map<String, double> topBarangays;
   final Map<String, double> barangaysAffectedByCalamity;
   
@@ -30,10 +30,10 @@ class ReportsData {
        barangaysAffectedByCalamity = barangaysAffectedByCalamity ?? {};
 }
 
-class MonthlyValidation {
+class MonthlyDeclaration {
   final int month;
   final int count;
-  MonthlyValidation(this.month, this.count);
+  MonthlyDeclaration(this.month, this.count);
 }
 
 final reportsProvider = FutureProvider.autoDispose<ReportsData>((ref) async {
@@ -98,9 +98,9 @@ final reportsProvider = FutureProvider.autoDispose<ReportsData>((ref) async {
     }
   }
   
-  List<MonthlyValidation> monthlyDeclarations = [];
+  List<MonthlyDeclaration> monthlyDeclarations = [];
   for (int i = 1; i <= 12; i++) {
-    monthlyDeclarations.add(MonthlyValidation(i, monthlyMap[i] ?? 0));
+    monthlyDeclarations.add(MonthlyDeclaration(i, monthlyMap[i] ?? 0));
   }
   
   // Sort and limit top barangays
@@ -239,22 +239,22 @@ class ReportsScreen extends ConsumerWidget {
                           'Top Crop', 
                           topCropName, 
                           AppColors.primary, 
-                          '${topCropArea.toStringAsFixed(1)} ha validated', 
+                          '${topCropArea.toStringAsFixed(1)} ha declared', 
                           onTap: () {
-                            _showDetailsDialog(context, 'Top Crop Details', ['$topCropName has the highest validated area at ${topCropArea.toStringAsFixed(1)} hectares.']);
+                            _showDetailsDialog(context, 'Top Crop Details', ['$topCropName has the highest declared area at ${topCropArea.toStringAsFixed(1)} hectares.']);
                           }
                         );
                       }
                     ),
 
                     const SizedBox(width: 24),
-                    _buildSummaryCard(context, 'Total Area', '${data.totalArea.toStringAsFixed(0)} ha', AppColors.accent, 'Validated Area', onTap: () {
+                    _buildSummaryCard(context, 'Total Area', '${data.totalArea.toStringAsFixed(0)} ha', AppColors.accent, 'Declared Area', onTap: () {
                       final items = data.cropDistribution.entries.map((e) => '${e.key}: ${e.value.toStringAsFixed(1)} ha').toList();
-                      _showDetailsDialog(context, 'Total Validated Area', items);
+                      _showDetailsDialog(context, 'Total Declared Area', items);
                     }),
                     const SizedBox(width: 24),
-                    _buildSummaryCard(context, 'Pending', '${data.pendingArea.toStringAsFixed(0)} ha', AppColors.warning, 'For Validation', onTap: () {
-                      _showDetailsDialog(context, 'Pending Validation Area', ['Total pending area: ${data.pendingArea.toStringAsFixed(1)} ha across all barangays.']);
+                    _buildSummaryCard(context, 'Pending', '${data.pendingArea.toStringAsFixed(0)} ha', AppColors.warning, 'For Processing', onTap: () {
+                      _showDetailsDialog(context, 'Pending Processing Area', ['Total pending area: ${data.pendingArea.toStringAsFixed(1)} ha across all barangays.']);
                     }),
                     const SizedBox(width: 24),
                     _buildRollupCard(context, onTap: () {

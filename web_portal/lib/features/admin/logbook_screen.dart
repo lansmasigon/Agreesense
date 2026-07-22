@@ -176,7 +176,7 @@ class _LogbookScreenState extends ConsumerState<LogbookScreen> {
                                     
                                     return Column(
                                       children: [
-                                        _buildDetailRow('Total Validated Area', '$totalArea hectares', Icons.landscape_outlined),
+                                        _buildDetailRow('Total Area', '$totalArea hectares', Icons.landscape_outlined),
                                         _buildDetailRow('Est. Revenue (Harvested)', '₱$formattedRev', Icons.payments_outlined),
                                       ]
                                     );
