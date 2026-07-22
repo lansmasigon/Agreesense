@@ -64,7 +64,6 @@ class AdminShell extends ConsumerWidget {
 
   int _calculateSelectedIndex(BuildContext context) {
     final String location = GoRouterState.of(context).uri.path;
-    if (location.startsWith('/validation')) return 1;
     if (location.startsWith('/logbook')) return 2;
     if (location.startsWith('/calamities')) return 3;
     if (location.startsWith('/supply-chain')) return 4;
@@ -77,9 +76,6 @@ class AdminShell extends ConsumerWidget {
     switch (index) {
       case 0:
         context.go('/');
-        break;
-      case 1:
-        context.go('/validation');
         break;
       case 2:
         context.go('/logbook');
@@ -212,7 +208,6 @@ class AdminShell extends ConsumerWidget {
                               buildNavItem(2, 'Logbook', Icons.menu_book_rounded),
                               
                               buildNavSection('Workspace'),
-                              buildNavItem(1, 'Validation Queue', Icons.check_circle_outline_rounded),
                               buildNavItem(3, 'Calamities', Icons.warning_amber_rounded, disabled: userRole != 'mao'),
                               buildNavItem(4, 'Supply Chain', Icons.local_shipping_outlined, disabled: userRole != 'mao'),
                               

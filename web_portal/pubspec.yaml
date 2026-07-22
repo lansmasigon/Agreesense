@@ -41,6 +41,7 @@ dependencies:
   provider: ^6.1.5+1
   flutter_dotenv: ^6.0.1
   shared_preferences: ^2.5.5
+  syncfusion_flutter_maps: ^34.1.32
 
 dev_dependencies:
   flutter_test:
@@ -66,6 +67,8 @@ flutter:
 
   assets:
     - .env
+    - assets/Tubungan.geojson
+    - assets/TubunganBarangaysFiltered.geojson
 
   # To add assets to your application, add an assets section, like this:
   # assets:
