@@ -41,6 +41,7 @@ class BarangayStats {
   final String topCrop;
   final Color riskColor;
   final List<String> allCropsPlanted;
+  final int maxCropFarmers;
 
   BarangayStats({
     required this.name,
@@ -49,6 +50,7 @@ class BarangayStats {
     required this.topCrop,
     required this.riskColor,
     required this.allCropsPlanted,
+    required this.maxCropFarmers,
   });
 }
 
@@ -197,6 +199,7 @@ final dashboardStatsProvider = FutureProvider.autoDispose<DashboardStats>((ref) 
       topCrop: topCrop,
       riskColor: rColor,
       allCropsPlanted: brgyCropsCount[brgy]?.keys.toList() ?? [],
+      maxCropFarmers: maxCount,
     ));
   }
   barangayStats.sort((a, b) => b.totalArea.compareTo(a.totalArea));
@@ -479,14 +482,14 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                                         shapeDataField: 'adm4_en', // Changed from Brgy_Name to adm4_en
                                         dataCount: stats.barangayStats.length,
                                         primaryValueMapper: (int index) => stats.barangayStats[index].name,
-                                        shapeColorValueMapper: (int index) => stats.barangayStats[index].totalArea,
+                                        shapeColorValueMapper: (int index) => stats.barangayStats[index].maxCropFarmers,
                                         shapeColorMappers: [
-                                          const MapColorMapper(from: -1, to: 0.001, color: Color(0xFFEEEEEE)), // Gray for no value
-                                          const MapColorMapper(from: 0.001, to: 50, color: Color(0xFFC8E6C9)), // Light green
-                                          const MapColorMapper(from: 50.001, to: 200, color: Color(0xFF81C784)),
-                                          const MapColorMapper(from: 200.001, to: 500, color: Color(0xFF4CAF50)),
-                                          const MapColorMapper(from: 500.001, to: 1000, color: Color(0xFF388E3C)),
-                                          const MapColorMapper(from: 1000.001, to: 10000, color: Color(0xFF1B5E20)), // Dark green
+                                          const MapColorMapper(from: -1, to: 0, color: Color(0xFFEEEEEE)), // Gray for no value
+                                          const MapColorMapper(from: 1, to: 2, color: Color(0xFFC8E6C9)), // Light green
+                                          const MapColorMapper(from: 3, to: 5, color: Color(0xFF81C784)),
+                                          const MapColorMapper(from: 6, to: 10, color: Color(0xFF4CAF50)),
+                                          const MapColorMapper(from: 11, to: 20, color: Color(0xFF388E3C)),
+                                          const MapColorMapper(from: 21, to: 1000, color: Color(0xFF1B5E20)), // Dark green
                                         ],
                                       ),
                                       color: AppColors.background.withValues(alpha: 0.5), // Transparent for no-data
@@ -508,6 +511,8 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                                               const SizedBox(height: 4),
                                               Text('Total Area: ${brgy.totalArea.toStringAsFixed(1)} ha', style: const TextStyle(color: AppColors.secondaryText, fontSize: 12)),
                                               Text('Farmers: ${brgy.farmers}', style: const TextStyle(color: AppColors.secondaryText, fontSize: 12)),
+                                              if (brgy.topCrop != 'None')
+                                                Text('Oversupply Crop: ${brgy.topCrop}', style: const TextStyle(color: AppColors.warning, fontSize: 12, fontWeight: FontWeight.bold)),
                                             ],
                                           ),
                                         );
