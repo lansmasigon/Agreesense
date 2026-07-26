@@ -72,7 +72,7 @@ final dashboardStatsProvider = FutureProvider.autoDispose<DashboardStats>((ref) 
   // 1. Available Harvest
   final harvestRes = await supabase
       .from('crop_declarations')
-      .select('id, crop_id, area_ha, barangay, expected_harvest_date, profiles(full_name)')
+      .select('id, crop_id, area_ha, barangay, expected_harvest_date, profiles(first_name, last_name, id)')
       .eq('status', 'active')
       .order('expected_harvest_date', ascending: true)
       .limit(4);
@@ -80,7 +80,7 @@ final dashboardStatsProvider = FutureProvider.autoDispose<DashboardStats>((ref) 
   
   final List<Map<String, dynamic>> pendingList = (harvestRes as List).map((e) {
     return {
-      'farmer': e['profiles']?['full_name'] ?? 'Unknown',
+      'farmer': e['profiles'] != null ? "${e['profiles']['first_name'] ?? ''} ${e['profiles']['last_name'] ?? ''}".trim() : 'Unknown',
       'crop': formatCropId(e['crop_id'] as String? ?? ''),
       'area': e['area_ha'] ?? 0.0,
       'barangay': e['barangay'] ?? 'Unknown',
@@ -103,9 +103,9 @@ final dashboardStatsProvider = FutureProvider.autoDispose<DashboardStats>((ref) 
   }
 
   // 3. Total farmers
-  final farmersRes = await supabase.from('profiles').select('full_name').eq('role', 'farmer');
+  final farmersRes = await supabase.from('profiles').select('first_name, last_name, id').eq('role', 'farmer');
   final totalFarmers = (farmersRes as List).length;
-  final List<String> farmersList = farmersRes.map((e) => e['full_name']?.toString() ?? 'Unknown').toList();
+  final List<String> farmersList = farmersRes.map((e) => "${e['first_name'] ?? ''} ${e['last_name'] ?? ''}".trim().isEmpty ? 'Unknown' : "${e['first_name'] ?? ''} ${e['last_name'] ?? ''}".trim()).toList();
 
   // 5. Barangay stats for heatmap
   final brgyRes = await supabase
@@ -207,13 +207,18 @@ final dashboardStatsProvider = FutureProvider.autoDispose<DashboardStats>((ref) 
   // 6. Recent activities
   final recentRes = await supabase
       .from('crop_declarations')
-      .select('status, created_at, profiles(full_name), crop_id')
+      .select('status, created_at, profiles(first_name, last_name, id), crop_id')
       .order('created_at', ascending: false)
       .limit(8);
   
   final List<RecentActivity> recentActivities = [];
   for (var row in recentRes as List) {
-    final farmerName = row['profiles']?['full_name'] ?? 'Unknown Farmer';
+    final profile = row['profiles'];
+    String farmerName = 'Unknown Farmer';
+    if (profile != null) {
+      final fn = "${profile['first_name'] ?? ''} ${profile['last_name'] ?? ''}".trim();
+      if (fn.isNotEmpty) farmerName = fn;
+    }
     final cropId = row['crop_id'] as String? ?? 'unknown';
     final cropName = formatCropId(cropId);
     final status = row['status'];
@@ -242,7 +247,7 @@ final farmersTableProvider = FutureProvider.autoDispose<List<Map<String, dynamic
   final supabase = ref.watch(supabaseClientProvider);
   final res = await supabase
       .from('profiles')
-      .select('id, full_name, barangay, contact_number, farms(total_area_ha), crop_declarations(crop_id, barangay, area_ha, created_at, status)')
+      .select('id, first_name, last_name, barangay, contact_number, farms(total_area_ha), crop_declarations(crop_id, barangay, area_ha, created_at, status)')
       .eq('role', 'farmer');
 
   return List<Map<String, dynamic>>.from(res as List);
@@ -362,7 +367,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
   Widget build(BuildContext context) {
     final statsAsync = ref.watch(dashboardStatsProvider);
     final user = ref.watch(currentUserProvider);
-    final firstName = user?['full_name']?.split(' ').first ?? 'Admin';
+    final firstName = user?['first_name'] ?? 'Admin';
 
     return statsAsync.when(
       data: (stats) {
@@ -870,7 +875,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                     dropdownMenuEntries: farmers.map<DropdownMenuEntry<String>>((f) {
                       return DropdownMenuEntry<String>(
                         value: f['id'] as String,
-                        label: f['full_name'] ?? 'Unknown',
+                        label: "${f['first_name'] ?? ''} ${f['last_name'] ?? ''}".trim().isEmpty ? 'Unknown' : "${f['first_name'] ?? ''} ${f['last_name'] ?? ''}".trim(),
                       );
                     }).toList(),
                   ),
@@ -893,10 +898,10 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                               CircleAvatar(
                                 radius: 32,
                                 backgroundColor: AppColors.primary.withOpacity(0.1),
-                                child: Text((selectedFarmer['full_name'] ?? 'U')[0].toUpperCase(), style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: AppColors.primary)),
+                                child: Text(("${selectedFarmer['first_name'] ?? ''} ${selectedFarmer['last_name'] ?? ''}".trim().isEmpty ? 'U' : "${selectedFarmer['first_name'] ?? ''} ${selectedFarmer['last_name'] ?? ''}".trim())[0].toUpperCase(), style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: AppColors.primary)),
                               ),
                               const SizedBox(height: 16),
-                              Text(selectedFarmer['full_name'] ?? 'Unknown', style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
+                              Text("${selectedFarmer['first_name'] ?? ''} ${selectedFarmer['last_name'] ?? ''}".trim().isEmpty ? 'Unknown' : "${selectedFarmer['first_name'] ?? ''} ${selectedFarmer['last_name'] ?? ''}".trim(), style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
                               const SizedBox(height: 24),
                               _buildBrgyDetail('Barangay', selectedFarmer['barangay'] ?? 'N/A', Icons.location_on_outlined),
                               _buildBrgyDetail('Contact', selectedFarmer['contact_number'] ?? 'N/A', Icons.phone_outlined),

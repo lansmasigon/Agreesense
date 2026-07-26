@@ -34,7 +34,7 @@ final supplyChainProvider = FutureProvider.autoDispose<SupplyChainData>((ref) as
   final coopRes = await supabase.from('cooperatives').select();
   
   final activitiesRes = await supabase.from('crop_declarations')
-      .select('status, created_at, crop_id, profiles(full_name)')
+      .select('status, created_at, crop_id, profiles(first_name, last_name, id)')
       .order('created_at', ascending: false)
       .limit(5);
 
@@ -540,7 +540,11 @@ class _SupplyChainScreenState extends ConsumerState<SupplyChainScreen> with Sing
                             const Text('No recent activity.', style: TextStyle(color: AppColors.secondaryText))
                           else
                             ...data.activities.map((activity) {
-                              final user = activity['profiles']?['full_name'] as String? ?? 'Unknown User';
+                              final profile = activity['profiles'];
+                              final user = profile != null ? "${profile['first_name'] ?? ''} ${profile['last_name'] ?? ''}".trim() : 'Unknown User';
+                              if (user.isEmpty) {
+                                // Fallback
+                              }
                               final status = activity['status'] as String? ?? 'submitted';
                               final action = status == 'pending' ? 'submitted a' : status;
                               final cropId = activity['crop_id'] as String? ?? 'crop';

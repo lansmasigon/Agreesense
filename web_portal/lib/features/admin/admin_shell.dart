@@ -223,7 +223,7 @@ class AdminShell extends ConsumerWidget {
                     Consumer(
                       builder: (context, ref, child) {
                         final user = ref.watch(currentUserProvider);
-                        final fullName = user?['full_name'] ?? 'Admin User';
+                        final fullName = "${user?['first_name'] ?? ''} ${user?['last_name'] ?? ''}".trim().isEmpty ? 'Admin User' : "${user?['first_name'] ?? ''} ${user?['last_name'] ?? ''}".trim();
                         final role = user?['role']?.toString().toUpperCase() ?? 'MAO';
                         final initials = fullName.isNotEmpty ? fullName[0].toUpperCase() : 'U';
 
