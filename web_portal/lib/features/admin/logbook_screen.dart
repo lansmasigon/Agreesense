@@ -104,7 +104,7 @@ class _LogbookScreenState extends ConsumerState<LogbookScreen> {
                       dropdownMenuEntries: farmers.map<DropdownMenuEntry<String>>((f) {
                         return DropdownMenuEntry<String>(
                           value: f['id'] as String,
-                          label: f['id'] ?? 'Unknown ID',
+                          label: "${f['first_name']} ${f['last_name']}".trim().isEmpty ? 'Unknown' : "${f['first_name']} ${f['last_name']}".trim(),
                         );
                       }).toList(),
                     ),
@@ -128,14 +128,14 @@ class _LogbookScreenState extends ConsumerState<LogbookScreen> {
                                     CircleAvatar(
                                       radius: 32,
                                       backgroundColor: AppColors.primary.withOpacity(0.1),
-                                      child: Text((selectedFarmer['id'] ?? 'U')[0].toUpperCase(), style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: AppColors.primary)),
+                                      child: Text(("${selectedFarmer['first_name']} ${selectedFarmer['last_name']}".trim().isEmpty ? 'U' : "${selectedFarmer['first_name']} ${selectedFarmer['last_name']}".trim())[0].toUpperCase(), style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: AppColors.primary)),
                                     ),
                                     const SizedBox(width: 16),
                                     Expanded(
                                       child: Column(
                                         crossAxisAlignment: CrossAxisAlignment.start,
                                         children: [
-                                          Text(selectedFarmer['id'] ?? 'Unknown ID', style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
+                                          Text("${selectedFarmer['first_name']} ${selectedFarmer['last_name']}".trim().isEmpty ? 'Unknown' : "${selectedFarmer['first_name']} ${selectedFarmer['last_name']}".trim(), style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
                                           Text(selectedFarmer['barangay'] ?? 'N/A', style: const TextStyle(color: AppColors.secondaryText)),
                                         ],
                                       )
