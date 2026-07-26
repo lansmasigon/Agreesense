@@ -7,7 +7,7 @@ final logbookFarmersProvider = FutureProvider.autoDispose<List<Map<String, dynam
   final supabase = ref.watch(supabaseClientProvider);
   final res = await supabase
       .from('profiles')
-      .select('id, full_name, barangay, contact_number, farms(total_area_ha, name), crop_declarations(crop_id, barangay, area_ha, created_at, status, expected_yield_kg, projected_price_per_kg), calamity_reports(type, affected_area_ha, estimated_loss_value, occurred_on)')
+      .select('id, first_name, last_name, barangay, contact_number, farms(total_area_ha, name), crop_declarations(crop_id, barangay, area_ha, created_at, status, expected_yield_kg, projected_price_per_kg), calamity_reports(type, affected_area_ha, estimated_loss_value, occurred_on)')
       .eq('role', 'farmer');
 
   return List<Map<String, dynamic>>.from(res as List);
@@ -104,7 +104,7 @@ class _LogbookScreenState extends ConsumerState<LogbookScreen> {
                       dropdownMenuEntries: farmers.map<DropdownMenuEntry<String>>((f) {
                         return DropdownMenuEntry<String>(
                           value: f['id'] as String,
-                          label: f['full_name'] ?? 'Unknown',
+                          label: f['id'] ?? 'Unknown ID',
                         );
                       }).toList(),
                     ),
@@ -128,14 +128,14 @@ class _LogbookScreenState extends ConsumerState<LogbookScreen> {
                                     CircleAvatar(
                                       radius: 32,
                                       backgroundColor: AppColors.primary.withOpacity(0.1),
-                                      child: Text((selectedFarmer['full_name'] ?? 'U')[0].toUpperCase(), style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: AppColors.primary)),
+                                      child: Text((selectedFarmer['id'] ?? 'U')[0].toUpperCase(), style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: AppColors.primary)),
                                     ),
                                     const SizedBox(width: 16),
                                     Expanded(
                                       child: Column(
                                         crossAxisAlignment: CrossAxisAlignment.start,
                                         children: [
-                                          Text(selectedFarmer['full_name'] ?? 'Unknown', style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
+                                          Text(selectedFarmer['id'] ?? 'Unknown ID', style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
                                           Text(selectedFarmer['barangay'] ?? 'N/A', style: const TextStyle(color: AppColors.secondaryText)),
                                         ],
                                       )
