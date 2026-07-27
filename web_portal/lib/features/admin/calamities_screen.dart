@@ -8,7 +8,7 @@ final calamitiesProvider = FutureProvider.autoDispose<List<Map<String, dynamic>>
   final supabase = ref.watch(supabaseClientProvider);
   final res = await supabase
       .from('calamity_reports')
-      .select('*, profiles(full_name, barangay)')
+      .select('*, profiles(first_name, last_name, id, barangay)')
       .order('created_at', ascending: false);
   return List<Map<String, dynamic>>.from(res as List);
 });
@@ -221,7 +221,11 @@ class _CalamitiesScreenState extends ConsumerState<CalamitiesScreen> {
             itemBuilder: (context, index) {
               final r = reports[index];
               final type = r['type'] as String? ?? 'Unknown';
-              final farmer = r['profiles']?['full_name'] ?? 'Unknown';
+              final profile = r['profiles'];
+              final farmer = profile != null ? "${profile['first_name'] ?? ''} ${profile['last_name'] ?? ''}".trim() : 'Unknown';
+              if (farmer.isEmpty) {
+                // ...
+              }
               
               String emoji = '⚠';
               if (type.toLowerCase().contains('flood')) emoji = '🌊';
@@ -269,7 +273,8 @@ class _CalamitiesScreenState extends ConsumerState<CalamitiesScreen> {
     final area = (report['affected_area_ha'] as num?)?.toDouble() ?? 0.0;
     final estimatedSubsidy = lossFactor * area * _calibratedValuePerHectare;
     final type = report['type'] ?? 'Unknown';
-    final farmer = report['profiles']?['full_name'] ?? 'Unknown';
+    final profile = report['profiles'];
+    final farmer = profile != null ? "${profile['first_name'] ?? ''} ${profile['last_name'] ?? ''}".trim() : 'Unknown';
     final barangay = report['barangay'] ?? report['profiles']?['barangay'] ?? 'Unknown';
 
     return Column(
