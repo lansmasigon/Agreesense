@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:fl_chart/fl_chart.dart';
 import '../../providers/auth_provider.dart';
@@ -261,35 +261,6 @@ class _SupplyChainScreenState extends ConsumerState<SupplyChainScreen> with Sing
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                // HERO GAUGE (Temporarily removed - to be implemented later)
-                /*
-                Center(
-                  child: Column(
-                    children: [
-                      const Text('Market Health', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: AppColors.secondaryText, letterSpacing: 2)),
-                      const SizedBox(height: 24),
-                      SizedBox(
-                        width: 200,
-                        height: 200,
-                        child: AnimatedBuilder(
-                          animation: _gaugeController,
-                          builder: (context, child) {
-                            return CustomPaint(
-                              painter: CircularGaugePainter(progress: 0.85 * _gaugeController.value, color: AppColors.primary),
-                              child: const Center(
-                                child: Text('85%', style: TextStyle(fontSize: 48, fontWeight: FontWeight.bold, color: AppColors.text, letterSpacing: -2)),
-                              ),
-                            );
-                          }
-                        ),
-                      ),
-                      const SizedBox(height: 8),
-                      const Text('Strong demand. Oversupply risks mitigated.', style: TextStyle(color: AppColors.primary, fontWeight: FontWeight.w600)),
-                    ],
-                  ),
-                ),
-                const SizedBox(height: 64),
-                */
 
                 const SizedBox(height: 64),
                 
