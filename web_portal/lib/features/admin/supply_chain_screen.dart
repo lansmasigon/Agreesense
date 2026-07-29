@@ -274,8 +274,6 @@ class _SupplyChainScreenState extends ConsumerState<SupplyChainScreen> with Sing
                     Expanded(child: _buildChannelCard(context, 'Market Channels', data.marketChannels.length.toString(), Icons.storefront_rounded, AppColors.information)),
                     const SizedBox(width: 24),
                     Expanded(child: _buildChannelCard(context, 'Cooperatives', data.cooperatives.length.toString(), Icons.domain_rounded, AppColors.accent)),
-                    const SizedBox(width: 24),
-                    Expanded(child: _buildChannelCard(context, 'Export', exports.toString(), Icons.flight_takeoff_rounded, AppColors.warning)),
                   ],
                 ),
                 const SizedBox(height: 48),
