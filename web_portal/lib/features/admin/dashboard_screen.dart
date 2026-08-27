@@ -7,27 +7,34 @@ import '../../providers/auth_provider.dart';
 import '../../core/theme/app_colors.dart';
 
 class DashboardStats {
-  final int pendingDeclarations;
-  final double totalArea;
-  final int totalFarmers;
+  final double totalYieldTons;
+  final double totalSoldTons;
+  final double availableInventoryTons;
+  final double avgMarketPrice;
+  
   final List<String> oversupplyCrops;
   final String oversupplyRiskLevel;
   final Color oversupplyRiskColor;
   final List<BarangayStats> barangayStats;
   final List<RecentActivity> recentActivities;
-  final List<Map<String, dynamic>> pendingDeclarationsList; // Updated to Map for rich cards
+  final List<Map<String, dynamic>> harvestSimulations;
+  final List<Map<String, dynamic>> historicalPrices;
+  final List<Map<String, dynamic>> pendingDeclarationsList;
   final List<String> farmersList;
   final Map<String, double> totalAreaByBarangay;
 
   DashboardStats({
-    required this.pendingDeclarations,
-    required this.totalArea,
-    required this.totalFarmers,
+    required this.totalYieldTons,
+    required this.totalSoldTons,
+    required this.availableInventoryTons,
+    required this.avgMarketPrice,
     required this.oversupplyCrops,
     required this.oversupplyRiskLevel,
     required this.oversupplyRiskColor,
     required this.barangayStats,
     required this.recentActivities,
+    required this.harvestSimulations,
+    required this.historicalPrices,
     required this.pendingDeclarationsList,
     required this.farmersList,
     required this.totalAreaByBarangay,
@@ -69,42 +76,124 @@ final dashboardStatsProvider = FutureProvider.autoDispose<DashboardStats>((ref) 
     return id[0].toUpperCase() + id.substring(1).replaceAll('_', ' ');
   }
 
-  // 1. Available Harvest
+  // 1. Available Harvest (Active Declarations)
   final harvestRes = await supabase
       .from('crop_declarations')
-      .select('id, crop_id, area_ha, barangay, expected_harvest_date, profiles(first_name, last_name, id)')
+      .select('id, crop_id, area_ha, barangay, expected_harvest_date, expected_yield_kg, farmer_id, profiles(first_name, last_name, id)')
       .eq('status', 'active')
-      .order('expected_harvest_date', ascending: true)
-      .limit(4);
-  final pendingCount = (await supabase.from('crop_declarations').select('id').eq('status', 'active').count()).count ?? 0;
+      .order('expected_harvest_date', ascending: true);
+      
+  double availableInventoryTons = 0;
   
-  final List<Map<String, dynamic>> pendingList = (harvestRes as List).map((e) {
+  // For harvest clustering
+  Map<String, Map<String, dynamic>> harvestClusterMap = {}; // key: "YYYY-MM_CROP"
+
+  final List<Map<String, dynamic>> pendingList = harvestRes.map((e) {
+    final expectedYieldKg = (e['expected_yield_kg'] as num?)?.toDouble() ?? 0.0;
+    availableInventoryTons += expectedYieldKg / 1000.0;
+    
+    final harvestDateStr = e['expected_harvest_date'] as String? ?? '';
+    final monthKey = harvestDateStr.length >= 7 ? harvestDateStr.substring(0, 7) : 'Unknown';
+    final cropId = e['crop_id'] as String? ?? 'unknown';
+    
+    final clusterKey = '${monthKey}_$cropId';
+    if (!harvestClusterMap.containsKey(clusterKey)) {
+      harvestClusterMap[clusterKey] = {
+        'month': monthKey,
+        'crop': formatCropId(cropId),
+        'expectedYieldTons': 0.0,
+        'farmers': <String>{},
+      };
+    }
+    harvestClusterMap[clusterKey]!['expectedYieldTons'] += expectedYieldKg / 1000.0;
+    harvestClusterMap[clusterKey]!['farmers'].add(e['farmer_id']);
+
     return {
       'farmer': e['profiles'] != null ? "${e['profiles']['first_name'] ?? ''} ${e['profiles']['last_name'] ?? ''}".trim() : 'Unknown',
-      'crop': formatCropId(e['crop_id'] as String? ?? ''),
+      'crop': formatCropId(cropId),
       'area': e['area_ha'] ?? 0.0,
       'barangay': e['barangay'] ?? 'Unknown',
       'id': e['id']
     };
   }).toList();
+  
+  // 2. Total Sold and Historical Yield
+  final reportsRes = await supabase.from('production_reports').select('actual_yield_kg, loss_kg, actual_price_per_kg');
+  double totalSoldTons = 0;
+  for(var r in reportsRes as List) {
+    final act = (r['actual_yield_kg'] as num?)?.toDouble() ?? 0.0;
+    totalSoldTons += act / 1000.0;
+  }
+  
+  double totalYieldTons = totalSoldTons + availableInventoryTons;
+  
+  // 3. Market Prices
+  final pricesRes = await supabase.from('market_prices').select('crop_id, price_per_kg, recorded_on').order('recorded_on', ascending: false).limit(20);
+  double sumPrice = 0;
+  int countPrice = 0;
+  final List<Map<String, dynamic>> historicalPrices = [];
+  
+  for(var r in pricesRes as List) {
+    final p = (r['price_per_kg'] as num?)?.toDouble() ?? 0.0;
+    if (p > 0) {
+      sumPrice += p;
+      countPrice++;
+    }
+    historicalPrices.add({
+      'crop': formatCropId(r['crop_id'] as String? ?? ''),
+      'price': p,
+      'date': r['recorded_on'] ?? ''
+    });
+  }
+  final double avgMarketPrice = countPrice > 0 ? sumPrice / countPrice : 0.0;
 
-  // 2. Total area
+  // Advisory Simulations
+  final List<Map<String, dynamic>> harvestSimulations = [];
+  for (var entry in harvestClusterMap.values) {
+    final crop = entry['crop'];
+    final yieldTons = entry['expectedYieldTons'] as double;
+    final affectedFarmersCount = (entry['farmers'] as Set).length;
+    
+    if (yieldTons > 0) {
+      // Very basic simulation mock
+      double simulatedPrice = avgMarketPrice;
+      String advisory = 'Normal market conditions.';
+      if (yieldTons > 100) {
+        simulatedPrice = avgMarketPrice * 0.7; // 30% price drop
+        advisory = 'High risk of oversupply. Advise farmers to stagger harvest or secure forward contracts.';
+      } else if (yieldTons > 50) {
+        simulatedPrice = avgMarketPrice * 0.85; // 15% price drop
+        advisory = 'Moderate volume. Recommend monitoring bagsakan centers to prevent gluts.';
+      }
+      
+      harvestSimulations.add({
+        'month': entry['month'],
+        'crop': crop,
+        'yieldTons': yieldTons,
+        'simulatedPrice': simulatedPrice,
+        'affectedFarmers': affectedFarmersCount,
+        'advisory': advisory,
+      });
+    }
+  }
+  
+  // Sort simulations by month
+  harvestSimulations.sort((a, b) => a['month'].compareTo(b['month']));
+
+  // Total area
   final areaRes = await supabase
       .from('crop_declarations')
       .select('area_ha, barangay')
       .eq('status', 'active');
-  double totalArea = 0;
   final Map<String, double> brgyAreaMap = {};
   for (var row in areaRes as List) {
     final area = (row['area_ha'] as num).toDouble();
     final brgy = row['barangay'] as String? ?? 'Unknown';
-    totalArea += area;
     brgyAreaMap[brgy] = (brgyAreaMap[brgy] ?? 0) + area;
   }
 
   // 3. Total farmers
   final farmersRes = await supabase.from('profiles').select('first_name, last_name, id').eq('role', 'farmer');
-  final totalFarmers = (farmersRes as List).length;
   final List<String> farmersList = farmersRes.map((e) => "${e['first_name'] ?? ''} ${e['last_name'] ?? ''}".trim().isEmpty ? 'Unknown' : "${e['first_name'] ?? ''} ${e['last_name'] ?? ''}".trim()).toList();
 
   // 5. Barangay stats for heatmap
@@ -229,15 +318,18 @@ final dashboardStatsProvider = FutureProvider.autoDispose<DashboardStats>((ref) 
   }
 
   return DashboardStats(
-    pendingDeclarations: pendingCount,
-    totalArea: totalArea,
-    totalFarmers: totalFarmers,
+    totalYieldTons: totalYieldTons,
+    totalSoldTons: totalSoldTons,
+    availableInventoryTons: availableInventoryTons,
+    avgMarketPrice: avgMarketPrice,
     oversupplyCrops: oversupplyCrops,
     oversupplyRiskLevel: oversupplyRiskLevel,
     oversupplyRiskColor: oversupplyRiskColor,
     barangayStats: barangayStats,
     recentActivities: recentActivities,
-    pendingDeclarationsList: pendingList,
+    harvestSimulations: harvestSimulations,
+    historicalPrices: historicalPrices,
+    pendingDeclarationsList: pendingList.take(6).toList(),
     farmersList: farmersList,
     totalAreaByBarangay: brgyAreaMap,
   );
@@ -406,44 +498,37 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
               Row(
                 children: [
                   Expanded(child: _buildHoverCard(
-                    title: 'Pending Declarations',
-                    value: '${stats.pendingDeclarations}',
-                    subtitle: '+12 today',
-                    valueColor: AppColors.warning,
-                    onTap: () {
-                      final items = stats.pendingDeclarationsList.map((e) => '${e['farmer']} - ${e['crop']} (${e['area']} ha)').toList();
-                      _showDetailsDialog(context, 'Pending Declarations', items);
-                    }
-                  )),
-                  const SizedBox(width: 24),
-                  Expanded(child: _buildHoverCard(
-                    title: 'Farmers Registered',
-                    value: '${stats.totalFarmers}',
-                    subtitle: '+14 today',
+                    title: 'Total Yield (YTD)',
+                    value: '${stats.totalYieldTons.toStringAsFixed(1)} t',
+                    subtitle: 'Harvested & Expected',
                     valueColor: AppColors.primary,
-                    onTap: () {
-                      _showDetailsDialog(context, 'Registered Farmers', stats.farmersList);
-                    }
+                    onTap: () {}
                   )),
                   const SizedBox(width: 24),
                   Expanded(child: _buildHoverCard(
-                    title: 'Total Area',
-                    value: '${stats.totalArea.toStringAsFixed(0)} ha',
-                    subtitle: 'Current Season',
+                    title: 'Total Sold',
+                    value: '${stats.totalSoldTons.toStringAsFixed(1)} t',
+                    subtitle: 'From production reports',
                     valueColor: AppColors.information,
-                    onTap: () {
-                      final list = stats.totalAreaByBarangay.entries.map((e) => '${e.key}: ${e.value.toStringAsFixed(1)} ha').toList();
-                      _showDetailsDialog(context, 'Total Area by Barangay', list);
-                    }
+                    onTap: () {}
                   )),
                   const SizedBox(width: 24),
                   Expanded(child: _buildHoverCard(
-                    title: 'Oversupply Risk',
-                    value: stats.oversupplyRiskLevel,
-                    subtitle: stats.oversupplyCrops.join(', '),
-                    valueColor: stats.oversupplyRiskColor,
+                    title: 'Available Inventory',
+                    value: '${stats.availableInventoryTons.toStringAsFixed(1)} t',
+                    subtitle: 'Expected harvest (left)',
+                    valueColor: AppColors.warning,
+                    onTap: () {}
+                  )),
+                  const SizedBox(width: 24),
+                  Expanded(child: _buildHoverCard(
+                    title: 'Avg Market Price',
+                    value: '₱${stats.avgMarketPrice.toStringAsFixed(2)}',
+                    subtitle: 'Per kg (Current)',
+                    valueColor: AppColors.accent,
                     onTap: () {
-                      _showDetailsDialog(context, 'Oversupply Crops', stats.oversupplyCrops);
+                      final list = stats.historicalPrices.map((e) => '${e['crop']}: ₱${e['price']} on ${e['date']}').toList();
+                      _showDetailsDialog(context, 'Latest Market Prices', list);
                     }
                   )),
                 ],
@@ -650,22 +735,22 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                   ),
                   const SizedBox(width: 24),
                   
-                  // Validation Queue Cards
+                  // Harvest Cluster & Advisory Queue
                   Expanded(
-                    flex: 3,
+                    flex: 4,
                     child: Column(
                       children: [
                         Row(
                           mainAxisAlignment: MainAxisAlignment.spaceBetween,
                           children: [
-                            const Text('Available Harvest', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, letterSpacing: -0.5)),
+                            const Text('Supply Chain & Advisory', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, letterSpacing: -0.5)),
                             TextButton(onPressed: (){}, child: const Text('View All'))
                           ],
                         ),
                         const SizedBox(height: 16),
-                        if (stats.pendingDeclarationsList.isEmpty)
-                          const Padding(padding: EdgeInsets.all(32), child: Text('No available harvest.', style: TextStyle(color: AppColors.secondaryText))),
-                        ...stats.pendingDeclarationsList.map((item) => Container(
+                        if (stats.harvestSimulations.isEmpty)
+                          const Padding(padding: EdgeInsets.all(32), child: Text('No upcoming harvests.', style: TextStyle(color: AppColors.secondaryText))),
+                        ...stats.harvestSimulations.map((sim) => Container(
                           margin: const EdgeInsets.only(bottom: 12),
                           padding: const EdgeInsets.all(20),
                           decoration: BoxDecoration(
@@ -673,29 +758,58 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                             borderRadius: BorderRadius.circular(16),
                             border: Border.all(color: AppColors.border),
                           ),
-                          child: Row(
-                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              Expanded(
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    Text(item['crop'], style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
-                                    const SizedBox(height: 4),
-                                    Text('${item['farmer']} - ${item['barangay']}', style: const TextStyle(fontSize: 13, color: AppColors.secondaryText), maxLines: 1, overflow: TextOverflow.ellipsis),
-                                  ],
-                                ),
-                              ),
                               Row(
+                                mainAxisAlignment: MainAxisAlignment.spaceBetween,
                                 children: [
+                                  Row(
+                                    children: [
+                                      Container(
+                                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                                        decoration: BoxDecoration(color: AppColors.background, borderRadius: BorderRadius.circular(8)),
+                                        child: Text(sim['month'], style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: AppColors.text)),
+                                      ),
+                                      const SizedBox(width: 12),
+                                      Text(sim['crop'], style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: AppColors.primary)),
+                                    ],
+                                  ),
                                   Container(
                                     padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                                    decoration: BoxDecoration(color: AppColors.accent.withOpacity(0.1), borderRadius: BorderRadius.circular(12)),
-                                    child: const Text('Harvested', style: TextStyle(color: AppColors.accent, fontSize: 11, fontWeight: FontWeight.bold)),
+                                    decoration: BoxDecoration(color: (sim['simulatedPrice'] < stats.avgMarketPrice ? AppColors.danger : AppColors.accent).withOpacity(0.1), borderRadius: BorderRadius.circular(12)),
+                                    child: Text('₱${sim['simulatedPrice'].toStringAsFixed(2)} / kg', style: TextStyle(color: sim['simulatedPrice'] < stats.avgMarketPrice ? AppColors.danger : AppColors.accent, fontSize: 12, fontWeight: FontWeight.bold)),
                                   ),
-                                  const SizedBox(width: 12),
-                                  Text('${item['area']} ha', style: const TextStyle(fontWeight: FontWeight.bold, color: AppColors.primary)),
                                 ],
+                              ),
+                              const SizedBox(height: 16),
+                              Row(
+                                children: [
+                                  const Icon(Icons.monitor_weight_outlined, size: 16, color: AppColors.secondaryText),
+                                  const SizedBox(width: 6),
+                                  Text('${sim['yieldTons'].toStringAsFixed(1)} tons expected', style: const TextStyle(fontSize: 13, color: AppColors.text)),
+                                  const SizedBox(width: 16),
+                                  const Icon(Icons.people_alt_outlined, size: 16, color: AppColors.secondaryText),
+                                  const SizedBox(width: 6),
+                                  Text('${sim['affectedFarmers']} farmers harvesting', style: const TextStyle(fontSize: 13, color: AppColors.text)),
+                                ],
+                              ),
+                              const SizedBox(height: 12),
+                              Container(
+                                padding: const EdgeInsets.all(12),
+                                decoration: BoxDecoration(
+                                  color: AppColors.background,
+                                  borderRadius: BorderRadius.circular(8),
+                                  border: Border.all(color: AppColors.border)
+                                ),
+                                child: Row(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    const Icon(Icons.info_outline, size: 16, color: AppColors.warning),
+                                    const SizedBox(width: 8),
+                                    Expanded(child: Text(sim['advisory'], style: const TextStyle(fontSize: 12, color: AppColors.secondaryText))),
+                                  ],
+                                ),
                               )
                             ],
                           ),
@@ -707,7 +821,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
               ),
               const SizedBox(height: 32),
 
-              // BOTTOM ROW: Activity Timeline & Bar Chart
+              // BOTTOM ROW: Activity Timeline & Price Trends
               Row(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
@@ -724,31 +838,34 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          const Text('Activity Timeline', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, letterSpacing: -0.5)),
+                          const Text('Last Weekly Market Prices', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, letterSpacing: -0.5)),
                           const SizedBox(height: 24),
                           Expanded(
-                            child: ListView.builder(
-                              itemCount: stats.recentActivities.length,
+                            child: stats.historicalPrices.isEmpty
+                            ? const Text('No market price data.', style: TextStyle(color: AppColors.secondaryText))
+                            : ListView.builder(
+                              itemCount: stats.historicalPrices.length,
                               itemBuilder: (context, index) {
-                                final act = stats.recentActivities[index];
+                                final p = stats.historicalPrices[index];
                                 return Padding(
                                   padding: const EdgeInsets.only(bottom: 16.0),
                                   child: Row(
+                                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
                                     children: [
-                                      Container(
-                                        width: 8, height: 8,
-                                        decoration: const BoxDecoration(color: AppColors.primary, shape: BoxShape.circle),
+                                      Row(
+                                        children: [
+                                          const Icon(Icons.trending_up, size: 16, color: AppColors.primary),
+                                          const SizedBox(width: 16),
+                                          Column(
+                                            crossAxisAlignment: CrossAxisAlignment.start,
+                                            children: [
+                                              Text(p['crop'], style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold)),
+                                              Text(p['date'].toString().split(' ').first, style: const TextStyle(fontSize: 12, color: AppColors.secondaryText)),
+                                            ],
+                                          ),
+                                        ],
                                       ),
-                                      const SizedBox(width: 16),
-                                      Expanded(
-                                        child: Column(
-                                          crossAxisAlignment: CrossAxisAlignment.start,
-                                          children: [
-                                            Text(act.description, style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w500)),
-                                            Text(act.date, style: const TextStyle(fontSize: 12, color: AppColors.secondaryText)),
-                                          ],
-                                        ),
-                                      )
+                                      Text('₱${p['price'].toStringAsFixed(2)} / kg', style: const TextStyle(fontWeight: FontWeight.bold, color: AppColors.text)),
                                     ],
                                   ),
                                 );
@@ -773,7 +890,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          const Text('Historical Yield vs Target', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, letterSpacing: -0.5)),
+                          const Text('Upcoming Harvest Yield (Tons) by Barangay', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, letterSpacing: -0.5)),
                           const SizedBox(height: 32),
                           Expanded(
                             child: BarChart(
@@ -782,11 +899,13 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                                 borderData: FlBorderData(show: false),
                                 gridData: const FlGridData(show: true, drawVerticalLine: false),
                                 barGroups: stats.barangayStats.take(6).toList().asMap().entries.map((entry) {
+                                  // Approximating yield from area (e.g. 5 tons per ha)
+                                  final yieldEst = entry.value.totalArea * 5.0; 
                                   return BarChartGroupData(
                                     x: entry.key,
                                     barRods: [
-                                      BarChartRodData(toY: entry.value.totalArea, color: AppColors.primary, width: 24, borderRadius: BorderRadius.circular(4)),
-                                      BarChartRodData(toY: entry.value.totalArea * 1.2, color: AppColors.border, width: 24, borderRadius: BorderRadius.circular(4)),
+                                      BarChartRodData(toY: yieldEst, color: AppColors.primary, width: 24, borderRadius: BorderRadius.circular(4)),
+                                      BarChartRodData(toY: yieldEst * 1.2, color: AppColors.border, width: 24, borderRadius: BorderRadius.circular(4)),
                                     ],
                                   );
                                 }).toList(),
