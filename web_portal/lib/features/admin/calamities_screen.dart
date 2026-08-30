@@ -1,10 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:fl_chart/fl_chart.dart';
 import '../../providers/auth_provider.dart';
 import '../../core/theme/app_colors.dart';
+import 'dart:async';
+import 'dart:math' as math;
 
-final calamitiesProvider = FutureProvider.autoDispose<List<Map<String, dynamic>>>((ref) async {
+final incidentReportsProvider = FutureProvider.autoDispose<List<Map<String, dynamic>>>((ref) async {
   final supabase = ref.watch(supabaseClientProvider);
   final res = await supabase
       .from('calamity_reports')
@@ -23,14 +24,25 @@ class CalamitiesScreen extends ConsumerStatefulWidget {
 class _CalamitiesScreenState extends ConsumerState<CalamitiesScreen> {
   final double _calibratedValuePerHectare = 50000.0;
   Map<String, dynamic>? _selectedReport;
-  int _touchedIndex = -1;
+  
+  String _searchQuery = '';
+  Timer? _debounce;
+  final ScrollController _horizontalScrollController = ScrollController();
+  
+  // Filters
+  String? _filterMonth;
+  String? _filterYear;
+  String? _filterCropStage;
 
-  String _formatCropId(String? cropId) {
-    if (cropId == null) return 'Unknown Crop';
-    return cropId
-        .split('_')
-        .map((w) => w.isEmpty ? '' : '${w[0].toUpperCase()}${w.substring(1).toLowerCase()}')
-        .join(' ');
+  final List<String> _months = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+  final List<String> _years = ['2023', '2024', '2025', '2026'];
+  final List<String> _cropStages = ['Seedling', 'Vegetative', 'Reproductive', 'Maturity', 'Harvesting'];
+
+  @override
+  void dispose() {
+    _debounce?.cancel();
+    _horizontalScrollController.dispose();
+    super.dispose();
   }
 
   void _closeDrawer() {
@@ -38,91 +50,156 @@ class _CalamitiesScreenState extends ConsumerState<CalamitiesScreen> {
       _selectedReport = null;
     });
   }
+  
+  // Mock function to determine crop stage from created_at (since it might not be in DB)
+  String _getCropStage(String dateStr) {
+    int day = 0;
+    try {
+      day = DateTime.parse(dateStr).day;
+    } catch(e) {
+      day = 1;
+    }
+    if (day <= 7) return 'Seedling';
+    if (day <= 14) return 'Vegetative';
+    if (day <= 21) return 'Reproductive';
+    if (day <= 28) return 'Maturity';
+    return 'Harvesting';
+  }
 
   @override
   Widget build(BuildContext context) {
-    final calamitiesAsync = ref.watch(calamitiesProvider);
+    final reportsAsync = ref.watch(incidentReportsProvider);
 
     return Scaffold(
       backgroundColor: AppColors.background,
-      body: calamitiesAsync.when(
+      body: reportsAsync.when(
         data: (reports) {
-          if (reports.isEmpty) {
-            return Center(
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Container(
-                    width: 120,
-                    height: 120,
-                    decoration: BoxDecoration(
-                      color: AppColors.accent.withOpacity(0.1),
-                      shape: BoxShape.circle,
-                    ),
-                    child: const Icon(Icons.check_circle_outline_rounded, size: 64, color: AppColors.primary),
-                  ),
-                  const SizedBox(height: 24),
-                  const Text('No calamities reported', style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: AppColors.text)),
-                  const SizedBox(height: 8),
-                  const Text('Great news! Your municipality has no active\nagricultural disaster reports.', textAlign: TextAlign.center, style: TextStyle(color: AppColors.secondaryText, fontSize: 16)),
-                ],
-              ),
-            );
-          }
+          // Apply Search and Filters
+          var filteredReports = reports.where((r) {
+            bool matchesSearch = true;
+            if (_searchQuery.isNotEmpty) {
+              final q = _searchQuery.toLowerCase();
+              final type = (r['type'] ?? '').toString().toLowerCase();
+              final farmer = (r['profiles'] != null ? "${r['profiles']['first_name']} ${r['profiles']['last_name']}" : '').toLowerCase();
+              final brgy = (r['barangay'] ?? r['profiles']?['barangay'] ?? '').toString().toLowerCase();
+              matchesSearch = type.contains(q) || farmer.contains(q) || brgy.contains(q);
+            }
+            
+            bool matchesMonth = true;
+            bool matchesYear = true;
+            String dateStr = r['created_at'] ?? '';
+            if (dateStr.isNotEmpty) {
+              try {
+                final dt = DateTime.parse(dateStr);
+                if (_filterMonth != null && _filterMonth != 'All') {
+                  matchesMonth = _months[dt.month - 1] == _filterMonth;
+                }
+                if (_filterYear != null && _filterYear != 'All') {
+                  matchesYear = dt.year.toString() == _filterYear;
+                }
+              } catch(e) {
+                // Ignore parse errors, defaulting to match
+              }
+            }
+            
+            bool matchesStage = true;
+            if (_filterCropStage != null && _filterCropStage != 'All') {
+              matchesStage = _getCropStage(dateStr) == _filterCropStage;
+            }
 
-          double totalLoss = 0.0;
-          for (var r in reports) {
-            final lossFactor = ((r['loss_percent'] as num?)?.toDouble() ?? 0.0) / 100.0;
-            final area = (r['affected_area_ha'] as num?)?.toDouble() ?? 0.0;
-            totalLoss += lossFactor * area * _calibratedValuePerHectare;
-          }
-
-          String displayTotal;
-          if (totalLoss >= 1000000) {
-            displayTotal = '₱${(totalLoss / 1000000).toStringAsFixed(2)}M';
-          } else if (totalLoss >= 1000) {
-            displayTotal = '₱${(totalLoss / 1000).toStringAsFixed(1)}k';
-          } else {
-            displayTotal = '₱${totalLoss.toStringAsFixed(0)}';
-          }
+            return matchesSearch && matchesMonth && matchesYear && matchesStage;
+          }).toList();
 
           return Row(
             children: [
-              // Main Cinematic Area
+              // Main Tabular Area
               Expanded(
-                flex: 2,
-                child: Padding(
-                  padding: const EdgeInsets.all(40.0),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      const Text('Total Estimated Loss', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600, color: AppColors.secondaryText, letterSpacing: 1.5)),
-                      const SizedBox(height: 8),
-                      FittedBox(
-                        fit: BoxFit.scaleDown,
-                        alignment: Alignment.centerLeft,
-                        child: Text(displayTotal, style: const TextStyle(fontSize: 44, fontWeight: FontWeight.bold, color: AppColors.danger, letterSpacing: -2)),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    // Header Bar
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
+                      decoration: const BoxDecoration(
+                        color: AppColors.card,
+                        border: Border(bottom: BorderSide(color: AppColors.border))
                       ),
-                      const SizedBox(height: 48),
-                      Expanded(
-                        child: _buildCinematicDonutChart(reports),
-                      )
-                    ],
-                  ),
+                      child: Row(
+                        children: [
+                          const Text('Incident Reports', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: AppColors.text, letterSpacing: -0.5)),
+                          const SizedBox(width: 32),
+                          
+                          // Search Box
+                          Container(
+                            width: 200,
+                            height: 36,
+                            padding: const EdgeInsets.symmetric(horizontal: 12),
+                            decoration: BoxDecoration(color: AppColors.background, borderRadius: BorderRadius.circular(8), border: Border.all(color: AppColors.border)),
+                            child: Row(
+                              children: [
+                                const Icon(Icons.search, size: 16, color: AppColors.secondaryText),
+                                const SizedBox(width: 8),
+                                Expanded(
+                                  child: TextField(
+                                    onChanged: (val) {
+                                      if (_debounce?.isActive ?? false) _debounce!.cancel();
+                                      _debounce = Timer(const Duration(milliseconds: 300), () {
+                                        setState(() => _searchQuery = val);
+                                      });
+                                    },
+                                    style: const TextStyle(fontSize: 13),
+                                    decoration: const InputDecoration(border: InputBorder.none, hintText: 'Search incidents...', hintStyle: TextStyle(color: AppColors.secondaryText)),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                          const Spacer(),
+                          
+                          // Filters
+                          _buildFilterDropdown('Month', _months, _filterMonth, (v) => setState(() => _filterMonth = v)),
+                          const SizedBox(width: 12),
+                          _buildFilterDropdown('Year', _years, _filterYear, (v) => setState(() => _filterYear = v)),
+                          const SizedBox(width: 12),
+                          _buildFilterDropdown('Crop Stage', _cropStages, _filterCropStage, (v) => setState(() => _filterCropStage = v)),
+                        ],
+                      ),
+                    ),
+
+                    // Table Area
+                    Expanded(
+                      child: Scrollbar(
+                        controller: _horizontalScrollController,
+                        thumbVisibility: true,
+                        child: SingleChildScrollView(
+                          controller: _horizontalScrollController,
+                          scrollDirection: Axis.horizontal,
+                          child: ConstrainedBox(
+                            constraints: BoxConstraints(minWidth: MediaQuery.of(context).size.width - (_selectedReport != null ? 400 : 0)),
+                            child: SizedBox(
+                              width: math.max(1000, MediaQuery.of(context).size.width),
+                              child: _buildSpreadsheet(filteredReports),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
                 ),
               ),
 
-              // Right Panel (Live Feed / Drawer)
-              AnimatedContainer(
-                duration: const Duration(milliseconds: 400),
-                curve: Curves.easeOutCubic,
-                width: 400,
-                decoration: const BoxDecoration(
-                  color: AppColors.card,
-                  border: Border(left: BorderSide(color: AppColors.border)),
-                ),
-                child: _selectedReport == null ? _buildLiveFeed(reports) : _buildLossCalculator(_selectedReport!),
-              )
+              // Validation / Details Drawer
+              if (_selectedReport != null)
+                AnimatedContainer(
+                  duration: const Duration(milliseconds: 300),
+                  curve: Curves.easeOutCubic,
+                  width: 400,
+                  decoration: const BoxDecoration(
+                    color: AppColors.card,
+                    border: Border(left: BorderSide(color: AppColors.border)),
+                  ),
+                  child: _buildValidationDrawer(_selectedReport!),
+                )
             ],
           );
         },
@@ -132,150 +209,166 @@ class _CalamitiesScreenState extends ConsumerState<CalamitiesScreen> {
     );
   }
 
-  Widget _buildCinematicDonutChart(List<Map<String, dynamic>> reports) {
-    Map<String, double> lossByType = {};
-    for (var r in reports) {
-      final type = r['type'] as String? ?? 'Unknown';
-      final lossFactor = ((r['loss_percent'] as num?)?.toDouble() ?? 0.0) / 100.0;
-      final area = (r['affected_area_ha'] as num?)?.toDouble() ?? 0.0;
-      lossByType[type] = (lossByType[type] ?? 0.0) + (lossFactor * area * _calibratedValuePerHectare);
-    }
-
-    final colors = [AppColors.information, AppColors.danger, AppColors.warning, AppColors.primary, AppColors.accent];
-    List<PieChartSectionData> sections = [];
-    int i = 0;
-
-    lossByType.forEach((type, value) {
-      if (value > 0) {
-        final isTouched = i == _touchedIndex;
-        final radius = isTouched ? 90.0 : 70.0;
-        final fontSize = isTouched ? 16.0 : 12.0;
-
-        // Display exact formatting based on value magnitude
-        String displayValue;
-        if (value >= 1000000) {
-          displayValue = '${(value / 1000000).toStringAsFixed(1)}M';
-        } else if (value >= 1000) {
-          displayValue = '${(value / 1000).toStringAsFixed(0)}k';
-        } else {
-          displayValue = value.toStringAsFixed(0);
-        }
-
-        sections.add(
-          PieChartSectionData(
-            color: colors[i % colors.length],
-            value: value,
-            title: displayValue,
-            radius: radius,
-            titleStyle: TextStyle(fontSize: fontSize, fontWeight: FontWeight.bold, color: Colors.white),
-            badgeWidget: isTouched ? Container(
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-              decoration: BoxDecoration(
-                color: AppColors.card,
-                borderRadius: BorderRadius.circular(12),
-                boxShadow: [BoxShadow(color: AppColors.text.withOpacity(0.1), blurRadius: 10, offset: const Offset(0, 4))]
-              ),
-              child: Text(type.toUpperCase(), style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: AppColors.text, letterSpacing: 1.2)),
-            ) : null,
-            badgePositionPercentageOffset: 1.2,
-          )
-        );
-        i++;
-      }
-    });
-
-    return PieChart(
-      PieChartData(
-        pieTouchData: PieTouchData(
-          touchCallback: (FlTouchEvent event, pieTouchResponse) {
-            setState(() {
-              if (!event.isInterestedForInteractions || pieTouchResponse == null || pieTouchResponse.touchedSection == null) {
-                _touchedIndex = -1;
-                return;
-              }
-              _touchedIndex = pieTouchResponse.touchedSection!.touchedSectionIndex;
-            });
-          },
+  Widget _buildFilterDropdown(String hint, List<String> items, String? value, ValueChanged<String?> onChanged) {
+    return Container(
+      height: 36,
+      padding: const EdgeInsets.symmetric(horizontal: 12),
+      decoration: BoxDecoration(color: AppColors.background, borderRadius: BorderRadius.circular(8), border: Border.all(color: AppColors.border)),
+      child: DropdownButtonHideUnderline(
+        child: DropdownButton<String>(
+          value: value,
+          hint: Text(hint, style: const TextStyle(fontSize: 13, color: AppColors.secondaryText)),
+          icon: const Icon(Icons.arrow_drop_down, size: 16, color: AppColors.secondaryText),
+          style: const TextStyle(fontSize: 13, color: AppColors.text, fontWeight: FontWeight.w500),
+          dropdownColor: AppColors.card,
+          items: [
+            const DropdownMenuItem(value: 'All', child: Text('All')),
+            ...items.map((e) => DropdownMenuItem(value: e, child: Text(e))),
+          ],
+          onChanged: (v) => onChanged(v == 'All' ? null : v),
         ),
-        borderData: FlBorderData(show: false),
-        sectionsSpace: 4,
-        centerSpaceRadius: 80,
-        sections: sections,
       ),
     );
   }
 
-  Widget _buildLiveFeed(List<Map<String, dynamic>> reports) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        const Padding(
-          padding: EdgeInsets.all(32.0),
-          child: Text('Live Report Feed', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: AppColors.text)),
-        ),
-        Expanded(
-          child: ListView.separated(
-            padding: const EdgeInsets.symmetric(horizontal: 16),
-            itemCount: reports.length,
-            separatorBuilder: (context, index) => const Divider(color: AppColors.border, height: 1),
-            itemBuilder: (context, index) {
-              final r = reports[index];
-              final type = r['type'] as String? ?? 'Unknown';
-              final profile = r['profiles'];
-              final farmer = profile != null ? "${profile['first_name'] ?? ''} ${profile['last_name'] ?? ''}".trim() : 'Unknown';
-              if (farmer.isEmpty) {
-                // ...
-              }
-              
-              String emoji = '⚠';
-              if (type.toLowerCase().contains('flood')) emoji = '🌊';
-              if (type.toLowerCase().contains('typhoon')) emoji = '🌪';
-              if (type.toLowerCase().contains('drought')) emoji = '☀';
-              if (type.toLowerCase().contains('pest')) emoji = '🐛';
+  Widget _buildSpreadsheet(List<Map<String, dynamic>> data) {
+    final columns = [
+      {'key': 'date', 'label': 'DATE', 'width': 120.0},
+      {'key': 'type', 'label': 'INCIDENT TYPE', 'width': 150.0},
+      {'key': 'farmer', 'label': 'FARMER', 'width': 200.0},
+      {'key': 'barangay', 'label': 'BARANGAY', 'width': 150.0},
+      {'key': 'area', 'label': 'AFFECTED (HA)', 'width': 120.0},
+      {'key': 'loss', 'label': 'LOSS %', 'width': 100.0},
+      {'key': 'stage', 'label': 'CROP STAGE', 'width': 120.0},
+      {'key': 'status', 'label': 'STATUS', 'width': 120.0},
+    ];
 
-              return InkWell(
-                onTap: () {
-                  setState(() {
-                    _selectedReport = r;
-                  });
-                },
-                hoverColor: AppColors.background,
-                borderRadius: BorderRadius.circular(12),
-                child: Padding(
-                  padding: const EdgeInsets.all(16.0),
-                  child: Row(
-                    children: [
-                      Text(emoji, style: const TextStyle(fontSize: 24)),
-                      const SizedBox(width: 16),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(type, style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 15, color: AppColors.text)),
-                            Text(farmer, style: const TextStyle(color: AppColors.secondaryText, fontSize: 13)),
-                          ],
-                        ),
-                      ),
-                      const Text('Just now', style: TextStyle(color: AppColors.secondaryText, fontSize: 12)), // Dummy time
-                    ],
-                  ),
-                ),
-              );
-            },
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        // Header Row
+        Container(
+          height: 48,
+          decoration: const BoxDecoration(
+            color: AppColors.background,
+            border: Border(bottom: BorderSide(color: AppColors.border)),
           ),
+          child: Row(
+            children: columns.map((col) => Container(
+              width: col['width'] as double,
+              padding: const EdgeInsets.symmetric(horizontal: 16),
+              alignment: Alignment.centerLeft,
+              decoration: const BoxDecoration(border: Border(right: BorderSide(color: AppColors.border))),
+              child: Text(
+                col['label'] as String,
+                style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: AppColors.secondaryText, letterSpacing: 0.5),
+              ),
+            )).toList(),
+          ),
+        ),
+        // Data Rows
+        Expanded(
+          child: data.isEmpty
+            ? const Center(child: Text('No incident reports found.', style: TextStyle(color: AppColors.secondaryText)))
+            : ListView.builder(
+                itemCount: data.length,
+                itemBuilder: (context, index) {
+                  final row = data[index];
+                  final isSelected = _selectedReport != null && _selectedReport!['id'] == row['id'];
+
+                  final dateStr = row['created_at'] != null ? row['created_at'].toString().split('T').first : '';
+                  final type = row['type'] ?? 'Unknown';
+                  final farmer = row['profiles'] != null ? "${row['profiles']['first_name']} ${row['profiles']['last_name']}" : 'Unknown';
+                  final barangay = row['barangay'] ?? row['profiles']?['barangay'] ?? 'Unknown';
+                  final area = (row['affected_area_ha'] as num?)?.toStringAsFixed(1) ?? '0.0';
+                  final loss = (row['loss_percent'] as num?)?.toStringAsFixed(0) ?? '0';
+                  final stage = _getCropStage(dateStr);
+                  final status = row['status'] ?? 'Pending'; // fallback
+
+                  return InkWell(
+                    onTap: () {
+                      setState(() {
+                        _selectedReport = row;
+                      });
+                    },
+                    hoverColor: AppColors.accent.withValues(alpha: 0.05),
+                    child: Container(
+                      height: 48,
+                      decoration: BoxDecoration(
+                        color: isSelected ? AppColors.accent.withValues(alpha: 0.1) : Colors.transparent,
+                        border: const Border(bottom: BorderSide(color: AppColors.border)),
+                      ),
+                      child: Row(
+                        children: [
+                          _buildCell(dateStr, 120.0),
+                          _buildCell(type, 150.0, isBold: true),
+                          _buildCell(farmer, 200.0),
+                          _buildCell(barangay, 150.0),
+                          _buildCell(area, 120.0),
+                          _buildCell('$loss%', 100.0),
+                          _buildCell(stage, 120.0),
+                          _buildStatusCell(status, 120.0),
+                        ],
+                      ),
+                    ),
+                  );
+                },
+              ),
         ),
       ],
     );
   }
 
-  Widget _buildLossCalculator(Map<String, dynamic> report) {
+  Widget _buildCell(String text, double width, {bool isBold = false}) {
+    return Container(
+      width: width,
+      padding: const EdgeInsets.symmetric(horizontal: 16),
+      alignment: Alignment.centerLeft,
+      decoration: const BoxDecoration(border: Border(right: BorderSide(color: AppColors.border))),
+      child: Text(
+        text,
+        style: TextStyle(fontSize: 13, color: AppColors.text, fontWeight: isBold ? FontWeight.bold : FontWeight.normal),
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
+      ),
+    );
+  }
+  
+  Widget _buildStatusCell(String status, double width) {
+    Color color = AppColors.warning;
+    if (status.toLowerCase() == 'approved' || status.toLowerCase() == 'validated') color = AppColors.primary;
+    if (status.toLowerCase() == 'rejected') color = AppColors.danger;
+
+    return Container(
+      width: width,
+      padding: const EdgeInsets.symmetric(horizontal: 16),
+      alignment: Alignment.centerLeft,
+      decoration: const BoxDecoration(border: Border(right: BorderSide(color: AppColors.border))),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+        decoration: BoxDecoration(
+          color: color.withValues(alpha: 0.1),
+          borderRadius: BorderRadius.circular(12),
+        ),
+        child: Text(
+          status.toUpperCase(),
+          style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: color),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildValidationDrawer(Map<String, dynamic> report) {
     final lossFactor = ((report['loss_percent'] as num?)?.toDouble() ?? 0.0) / 100.0;
     final area = (report['affected_area_ha'] as num?)?.toDouble() ?? 0.0;
     final estimatedSubsidy = lossFactor * area * _calibratedValuePerHectare;
     final type = report['type'] ?? 'Unknown';
     final profile = report['profiles'];
     final farmer = profile != null ? "${profile['first_name'] ?? ''} ${profile['last_name'] ?? ''}".trim() : 'Unknown';
+    final farmerId = profile != null ? profile['id'] : 'N/A';
     final barangay = report['barangay'] ?? report['profiles']?['barangay'] ?? 'Unknown';
+    final dateStr = report['created_at'] != null ? report['created_at'].toString().split('T').first : '';
+    final stage = _getCropStage(dateStr);
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -294,18 +387,51 @@ class _CalamitiesScreenState extends ConsumerState<CalamitiesScreen> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const Text('Loss Calculator', style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: AppColors.primary, letterSpacing: 1.2)),
+                const Text('Incident Validation', style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: AppColors.primary, letterSpacing: 1.2)),
                 const SizedBox(height: 8),
                 Text(type, style: const TextStyle(fontSize: 32, fontWeight: FontWeight.bold, color: AppColors.text, letterSpacing: -1)),
-                Text('Reported by $farmer', style: const TextStyle(color: AppColors.secondaryText, fontSize: 16)),
-                const SizedBox(height: 48),
+                const SizedBox(height: 16),
+                
+                // Proof / Origin
+                Container(
+                  padding: const EdgeInsets.all(16),
+                  decoration: BoxDecoration(
+                    color: AppColors.background,
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: AppColors.border),
+                  ),
+                  child: Row(
+                    children: [
+                      const CircleAvatar(
+                        backgroundColor: AppColors.primary,
+                        child: Icon(Icons.person, color: Colors.white),
+                      ),
+                      const SizedBox(width: 16),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text('Reported by $farmer', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
+                            Text('ID: $farmerId', style: const TextStyle(color: AppColors.secondaryText, fontSize: 12)),
+                          ],
+                        ),
+                      ),
+                      const Icon(Icons.verified_user, color: AppColors.primary, size: 20),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 32),
 
-                _buildCalcRow('Barangays Affected', barangay),
-                const SizedBox(height: 24),
+                _buildCalcRow('Date of Incident', dateStr),
+                const SizedBox(height: 16),
+                _buildCalcRow('Barangay', barangay),
+                const SizedBox(height: 16),
                 _buildCalcRow('Affected Area', '${area.toStringAsFixed(1)} ha'),
-                const SizedBox(height: 24),
+                const SizedBox(height: 16),
                 _buildCalcRow('Loss Percentage', '${(lossFactor * 100).toStringAsFixed(0)}%'),
-                const SizedBox(height: 48),
+                const SizedBox(height: 16),
+                _buildCalcRow('Crop Stage', stage),
+                const SizedBox(height: 32),
 
                 Container(
                   width: double.infinity,
@@ -313,7 +439,7 @@ class _CalamitiesScreenState extends ConsumerState<CalamitiesScreen> {
                   decoration: BoxDecoration(
                     gradient: const LinearGradient(colors: [AppColors.primary, AppColors.secondary], begin: Alignment.topLeft, end: Alignment.bottomRight),
                     borderRadius: BorderRadius.circular(24),
-                    boxShadow: [BoxShadow(color: AppColors.primary.withOpacity(0.3), blurRadius: 20, offset: const Offset(0, 10))],
+                    boxShadow: [BoxShadow(color: AppColors.primary.withValues(alpha: 0.3), blurRadius: 20, offset: const Offset(0, 10))],
                   ),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
@@ -331,20 +457,25 @@ class _CalamitiesScreenState extends ConsumerState<CalamitiesScreen> {
                     Expanded(
                       child: OutlinedButton(
                         onPressed: _closeDrawer,
-                        style: OutlinedButton.styleFrom(padding: const EdgeInsets.symmetric(vertical: 16), side: const BorderSide(color: AppColors.border), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12))),
-                        child: const Text('Back', style: TextStyle(color: AppColors.text)),
+                        style: OutlinedButton.styleFrom(padding: const EdgeInsets.symmetric(vertical: 16), side: const BorderSide(color: AppColors.danger), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12))),
+                        child: const Text('Reject', style: TextStyle(color: AppColors.danger, fontWeight: FontWeight.bold)),
                       ),
                     ),
                     const SizedBox(width: 16),
                     Expanded(
                       child: ElevatedButton(
-                        onPressed: () {},
+                        onPressed: () {
+                          // Update status mock
+                          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Incident Validated and Subsidy Approved')));
+                          _closeDrawer();
+                        },
                         style: ElevatedButton.styleFrom(backgroundColor: AppColors.primary, padding: const EdgeInsets.symmetric(vertical: 16), elevation: 0, shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12))),
-                        child: const Text('Approve Subsidy', style: TextStyle(color: Colors.white)),
+                        child: const Text('Validate & Approve', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
                       ),
                     ),
                   ],
-                )
+                ),
+                const SizedBox(height: 32),
               ],
             ),
           ),
@@ -357,8 +488,8 @@ class _CalamitiesScreenState extends ConsumerState<CalamitiesScreen> {
     return Row(
       mainAxisAlignment: MainAxisAlignment.spaceBetween,
       children: [
-        Text(label, style: const TextStyle(fontSize: 16, color: AppColors.secondaryText)),
-        Text(value, style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: AppColors.text)),
+        Text(label, style: const TextStyle(fontSize: 14, color: AppColors.secondaryText)),
+        Text(value, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: AppColors.text)),
       ],
     );
   }
