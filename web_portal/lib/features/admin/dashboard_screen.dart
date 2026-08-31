@@ -455,6 +455,178 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
     );
   }
 
+  Widget _buildAdvisoryCard(BuildContext context, Map<String, dynamic> sim, DashboardStats stats) {
+    return InkWell(
+      onTap: () => _showSimulationDetails(context, sim, stats),
+      hoverColor: Colors.transparent,
+      child: Container(
+        margin: const EdgeInsets.only(bottom: 12),
+        padding: const EdgeInsets.all(20),
+        decoration: BoxDecoration(
+          color: AppColors.card,
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: AppColors.border),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Row(
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                      decoration: BoxDecoration(color: AppColors.background, borderRadius: BorderRadius.circular(8)),
+                      child: Text(sim['month'], style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: AppColors.text)),
+                    ),
+                    const SizedBox(width: 12),
+                    Text(sim['crop'], style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: AppColors.primary)),
+                  ],
+                ),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                  decoration: BoxDecoration(color: (sim['simulatedPrice'] < stats.avgMarketPrice ? AppColors.danger : AppColors.accent).withOpacity(0.1), borderRadius: BorderRadius.circular(12)),
+                  child: Text('₱${sim['simulatedPrice'].toStringAsFixed(2)} / kg', style: TextStyle(color: sim['simulatedPrice'] < stats.avgMarketPrice ? AppColors.danger : AppColors.accent, fontSize: 12, fontWeight: FontWeight.bold)),
+                ),
+              ],
+            ),
+            const SizedBox(height: 16),
+            Row(
+              children: [
+                const Icon(Icons.monitor_weight_outlined, size: 16, color: AppColors.secondaryText),
+                const SizedBox(width: 6),
+                Text('${sim['yieldTons'].toStringAsFixed(1)} tons expected', style: const TextStyle(fontSize: 13, color: AppColors.text)),
+                const SizedBox(width: 16),
+                const Icon(Icons.people_alt_outlined, size: 16, color: AppColors.secondaryText),
+                const SizedBox(width: 6),
+                Text('${sim['affectedFarmers']} farmers harvesting', style: const TextStyle(fontSize: 13, color: AppColors.text)),
+              ],
+            ),
+            const SizedBox(height: 12),
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: AppColors.background,
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(color: AppColors.border)
+              ),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Icon(Icons.info_outline, size: 16, color: AppColors.warning),
+                  const SizedBox(width: 8),
+                  Expanded(child: Text(sim['advisory'], style: const TextStyle(fontSize: 12, color: AppColors.secondaryText))),
+                ],
+              ),
+            )
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _showAllSimulations(BuildContext context, DashboardStats stats) {
+    showDialog(
+      context: context,
+      builder: (context) {
+        return Dialog(
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+          backgroundColor: AppColors.card,
+          child: Container(
+            width: 500,
+            constraints: BoxConstraints(maxHeight: MediaQuery.of(context).size.height * 0.8),
+            padding: const EdgeInsets.all(32),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    const Text('All Supply Chain & Advisory', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
+                    IconButton(icon: const Icon(Icons.close), onPressed: () => Navigator.pop(context))
+                  ],
+                ),
+                const SizedBox(height: 24),
+                if (stats.harvestSimulations.isEmpty)
+                  const Text('No upcoming harvests.', style: TextStyle(color: AppColors.secondaryText)),
+                Expanded(
+                  child: ListView.builder(
+                    itemCount: stats.harvestSimulations.length,
+                    itemBuilder: (context, index) {
+                      final sim = stats.harvestSimulations[index];
+                      return _buildAdvisoryCard(context, sim, stats);
+                    },
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      }
+    );
+  }
+
+  void _showSimulationDetails(BuildContext context, Map<String, dynamic> sim, DashboardStats stats) {
+    showDialog(
+      context: context,
+      builder: (context) {
+        return Dialog(
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+          backgroundColor: AppColors.card,
+          child: Container(
+            width: 400,
+            padding: const EdgeInsets.all(32),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Text('${sim['month']} - ${sim['crop']}', style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
+                    IconButton(icon: const Icon(Icons.close), onPressed: () => Navigator.pop(context))
+                  ],
+                ),
+                const SizedBox(height: 24),
+                _buildDetailRow(Icons.price_change_outlined, 'Simulated Price', '₱${sim['simulatedPrice'].toStringAsFixed(2)} / kg'),
+                const SizedBox(height: 12),
+                _buildDetailRow(Icons.monitor_weight_outlined, 'Expected Yield', '${sim['yieldTons'].toStringAsFixed(1)} tons'),
+                const SizedBox(height: 12),
+                _buildDetailRow(Icons.people_alt_outlined, 'Affected Farmers', '${sim['affectedFarmers']}'),
+                const SizedBox(height: 24),
+                const Text('Advisory', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+                const SizedBox(height: 8),
+                Container(
+                  padding: const EdgeInsets.all(16),
+                  decoration: BoxDecoration(
+                    color: AppColors.background,
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: AppColors.border),
+                  ),
+                  child: Text(sim['advisory'], style: const TextStyle(fontSize: 14, color: AppColors.text, height: 1.5)),
+                )
+              ],
+            ),
+          ),
+        );
+      }
+    );
+  }
+
+  Widget _buildDetailRow(IconData icon, String label, String value) {
+    return Row(
+      children: [
+        Icon(icon, size: 20, color: AppColors.primary),
+        const SizedBox(width: 12),
+        Text('$label:', style: const TextStyle(fontSize: 14, color: AppColors.secondaryText)),
+        const SizedBox(width: 8),
+        Expanded(child: Text(value, style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold))),
+      ],
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final statsAsync = ref.watch(dashboardStatsProvider);
@@ -744,76 +916,16 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                           mainAxisAlignment: MainAxisAlignment.spaceBetween,
                           children: [
                             const Text('Supply Chain & Advisory', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, letterSpacing: -0.5)),
-                            TextButton(onPressed: (){}, child: const Text('View All'))
+                            TextButton(
+                              onPressed: () => _showAllSimulations(context, stats),
+                              child: const Text('View All'),
+                            )
                           ],
                         ),
                         const SizedBox(height: 16),
                         if (stats.harvestSimulations.isEmpty)
                           const Padding(padding: EdgeInsets.all(32), child: Text('No upcoming harvests.', style: TextStyle(color: AppColors.secondaryText))),
-                        ...stats.harvestSimulations.map((sim) => Container(
-                          margin: const EdgeInsets.only(bottom: 12),
-                          padding: const EdgeInsets.all(20),
-                          decoration: BoxDecoration(
-                            color: AppColors.card,
-                            borderRadius: BorderRadius.circular(16),
-                            border: Border.all(color: AppColors.border),
-                          ),
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Row(
-                                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                                children: [
-                                  Row(
-                                    children: [
-                                      Container(
-                                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                                        decoration: BoxDecoration(color: AppColors.background, borderRadius: BorderRadius.circular(8)),
-                                        child: Text(sim['month'], style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: AppColors.text)),
-                                      ),
-                                      const SizedBox(width: 12),
-                                      Text(sim['crop'], style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: AppColors.primary)),
-                                    ],
-                                  ),
-                                  Container(
-                                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                                    decoration: BoxDecoration(color: (sim['simulatedPrice'] < stats.avgMarketPrice ? AppColors.danger : AppColors.accent).withOpacity(0.1), borderRadius: BorderRadius.circular(12)),
-                                    child: Text('₱${sim['simulatedPrice'].toStringAsFixed(2)} / kg', style: TextStyle(color: sim['simulatedPrice'] < stats.avgMarketPrice ? AppColors.danger : AppColors.accent, fontSize: 12, fontWeight: FontWeight.bold)),
-                                  ),
-                                ],
-                              ),
-                              const SizedBox(height: 16),
-                              Row(
-                                children: [
-                                  const Icon(Icons.monitor_weight_outlined, size: 16, color: AppColors.secondaryText),
-                                  const SizedBox(width: 6),
-                                  Text('${sim['yieldTons'].toStringAsFixed(1)} tons expected', style: const TextStyle(fontSize: 13, color: AppColors.text)),
-                                  const SizedBox(width: 16),
-                                  const Icon(Icons.people_alt_outlined, size: 16, color: AppColors.secondaryText),
-                                  const SizedBox(width: 6),
-                                  Text('${sim['affectedFarmers']} farmers harvesting', style: const TextStyle(fontSize: 13, color: AppColors.text)),
-                                ],
-                              ),
-                              const SizedBox(height: 12),
-                              Container(
-                                padding: const EdgeInsets.all(12),
-                                decoration: BoxDecoration(
-                                  color: AppColors.background,
-                                  borderRadius: BorderRadius.circular(8),
-                                  border: Border.all(color: AppColors.border)
-                                ),
-                                child: Row(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    const Icon(Icons.info_outline, size: 16, color: AppColors.warning),
-                                    const SizedBox(width: 8),
-                                    Expanded(child: Text(sim['advisory'], style: const TextStyle(fontSize: 12, color: AppColors.secondaryText))),
-                                  ],
-                                ),
-                              )
-                            ],
-                          ),
-                        ))
+                        ...stats.harvestSimulations.take(2).map((sim) => _buildAdvisoryCard(context, sim, stats))
                       ],
                     ),
                   )
