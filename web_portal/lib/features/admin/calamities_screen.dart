@@ -23,7 +23,6 @@ class CalamitiesScreen extends ConsumerStatefulWidget {
 
 class _CalamitiesScreenState extends ConsumerState<CalamitiesScreen> {
   final double _calibratedValuePerHectare = 50000.0;
-  Map<String, dynamic>? _selectedReport;
   
   String _searchQuery = '';
   Timer? _debounce;
@@ -43,12 +42,6 @@ class _CalamitiesScreenState extends ConsumerState<CalamitiesScreen> {
     _debounce?.cancel();
     _horizontalScrollController.dispose();
     super.dispose();
-  }
-
-  void _closeDrawer() {
-    setState(() {
-      _selectedReport = null;
-    });
   }
   
   // Mock function to determine crop stage from created_at (since it might not be in DB)
@@ -168,38 +161,32 @@ class _CalamitiesScreenState extends ConsumerState<CalamitiesScreen> {
 
                     // Table Area
                     Expanded(
-                      child: Scrollbar(
-                        controller: _horizontalScrollController,
-                        thumbVisibility: true,
-                        child: SingleChildScrollView(
-                          controller: _horizontalScrollController,
-                          scrollDirection: Axis.horizontal,
-                          child: ConstrainedBox(
-                            constraints: BoxConstraints(minWidth: MediaQuery.of(context).size.width - (_selectedReport != null ? 400 : 0)),
-                            child: SizedBox(
-                              width: math.max(1000, MediaQuery.of(context).size.width),
-                              child: _buildSpreadsheet(filteredReports),
+                      child: LayoutBuilder(
+                        builder: (context, constraints) {
+                          return Scrollbar(
+                            controller: _horizontalScrollController,
+                            thumbVisibility: true,
+                            child: SingleChildScrollView(
+                              controller: _horizontalScrollController,
+                              scrollDirection: Axis.horizontal,
+                              child: ConstrainedBox(
+                                constraints: BoxConstraints(
+                                  minWidth: math.max(1080.0, constraints.maxWidth),
+                                  minHeight: constraints.maxHeight
+                                ),
+                                child: SizedBox(
+                                  width: math.max(1080.0, constraints.maxWidth),
+                                  child: _buildSpreadsheet(filteredReports),
+                                )
+                              ),
                             ),
-                          ),
-                        ),
+                          );
+                        }
                       ),
                     ),
                   ],
                 ),
               ),
-
-              // Validation / Details Drawer
-              if (_selectedReport != null)
-                AnimatedContainer(
-                  duration: const Duration(milliseconds: 300),
-                  curve: Curves.easeOutCubic,
-                  width: 400,
-                  decoration: const BoxDecoration(
-                    color: AppColors.card,
-                    border: Border(left: BorderSide(color: AppColors.border)),
-                  ),
-                  child: _buildValidationDrawer(_selectedReport!),
-                )
             ],
           );
         },
@@ -271,10 +258,10 @@ class _CalamitiesScreenState extends ConsumerState<CalamitiesScreen> {
           child: data.isEmpty
             ? const Center(child: Text('No incident reports found.', style: TextStyle(color: AppColors.secondaryText)))
             : ListView.builder(
+                padding: EdgeInsets.zero,
                 itemCount: data.length,
                 itemBuilder: (context, index) {
                   final row = data[index];
-                  final isSelected = _selectedReport != null && _selectedReport!['id'] == row['id'];
 
                   final dateStr = row['created_at'] != null ? row['created_at'].toString().split('T').first : '';
                   final type = row['type'] ?? 'Unknown';
@@ -287,16 +274,14 @@ class _CalamitiesScreenState extends ConsumerState<CalamitiesScreen> {
 
                   return InkWell(
                     onTap: () {
-                      setState(() {
-                        _selectedReport = row;
-                      });
+                      _showValidationModal(context, row);
                     },
                     hoverColor: AppColors.accent.withValues(alpha: 0.05),
                     child: Container(
                       height: 48,
-                      decoration: BoxDecoration(
-                        color: isSelected ? AppColors.accent.withValues(alpha: 0.1) : Colors.transparent,
-                        border: const Border(bottom: BorderSide(color: AppColors.border)),
+                      decoration: const BoxDecoration(
+                        color: Colors.transparent,
+                        border: Border(bottom: BorderSide(color: AppColors.border)),
                       ),
                       child: Row(
                         children: [
@@ -358,7 +343,7 @@ class _CalamitiesScreenState extends ConsumerState<CalamitiesScreen> {
     );
   }
 
-  Widget _buildValidationDrawer(Map<String, dynamic> report) {
+  void _showValidationModal(BuildContext context, Map<String, dynamic> report) {
     final lossFactor = ((report['loss_percent'] as num?)?.toDouble() ?? 0.0) / 100.0;
     final area = (report['affected_area_ha'] as num?)?.toDouble() ?? 0.0;
     final estimatedSubsidy = lossFactor * area * _calibratedValuePerHectare;
@@ -370,117 +355,131 @@ class _CalamitiesScreenState extends ConsumerState<CalamitiesScreen> {
     final dateStr = report['created_at'] != null ? report['created_at'].toString().split('T').first : '';
     final stage = _getCropStage(dateStr);
 
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Padding(
-          padding: const EdgeInsets.all(24.0),
-          child: IconButton(
-            icon: const Icon(Icons.close_rounded, color: AppColors.secondaryText),
-            onPressed: _closeDrawer,
-            style: IconButton.styleFrom(backgroundColor: AppColors.background),
-          ),
-        ),
-        Expanded(
-          child: SingleChildScrollView(
-            padding: const EdgeInsets.symmetric(horizontal: 32.0),
+    showDialog(
+      context: context,
+      builder: (context) {
+        return Dialog(
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+          backgroundColor: AppColors.card,
+          child: Container(
+            width: 500,
+            constraints: BoxConstraints(maxHeight: MediaQuery.of(context).size.height * 0.9),
+            padding: const EdgeInsets.all(32),
             child: Column(
+              mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const Text('Incident Validation', style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: AppColors.primary, letterSpacing: 1.2)),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    const Text('Incident Validation', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w600, color: AppColors.primary, letterSpacing: 1.2)),
+                    IconButton(
+                      icon: const Icon(Icons.close_rounded, color: AppColors.secondaryText),
+                      onPressed: () => Navigator.of(context).pop(),
+                      style: IconButton.styleFrom(backgroundColor: AppColors.background),
+                    ),
+                  ],
+                ),
                 const SizedBox(height: 8),
                 Text(type, style: const TextStyle(fontSize: 32, fontWeight: FontWeight.bold, color: AppColors.text, letterSpacing: -1)),
                 const SizedBox(height: 16),
                 
-                // Proof / Origin
-                Container(
-                  padding: const EdgeInsets.all(16),
-                  decoration: BoxDecoration(
-                    color: AppColors.background,
-                    borderRadius: BorderRadius.circular(12),
-                    border: Border.all(color: AppColors.border),
-                  ),
-                  child: Row(
-                    children: [
-                      const CircleAvatar(
-                        backgroundColor: AppColors.primary,
-                        child: Icon(Icons.person, color: Colors.white),
-                      ),
-                      const SizedBox(width: 16),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
+                Flexible(
+                  child: SingleChildScrollView(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        // Proof / Origin
+                        Container(
+                          padding: const EdgeInsets.all(16),
+                          decoration: BoxDecoration(
+                            color: AppColors.background,
+                            borderRadius: BorderRadius.circular(12),
+                            border: Border.all(color: AppColors.border),
+                          ),
+                          child: Row(
+                            children: [
+                              const CircleAvatar(
+                                backgroundColor: AppColors.primary,
+                                child: Icon(Icons.person, color: Colors.white),
+                              ),
+                              const SizedBox(width: 16),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text('Reported by $farmer', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
+                                    Text('ID: $farmerId', style: const TextStyle(color: AppColors.secondaryText, fontSize: 12)),
+                                  ],
+                                ),
+                              ),
+                              const Icon(Icons.verified_user, color: AppColors.primary, size: 20),
+                            ],
+                          ),
+                        ),
+                        const SizedBox(height: 32),
+
+                        _buildCalcRow('Date of Incident', dateStr),
+                        const SizedBox(height: 16),
+                        _buildCalcRow('Barangay', barangay),
+                        const SizedBox(height: 16),
+                        _buildCalcRow('Affected Area', '${area.toStringAsFixed(1)} ha'),
+                        const SizedBox(height: 16),
+                        _buildCalcRow('Loss Percentage', '${(lossFactor * 100).toStringAsFixed(0)}%'),
+                        const SizedBox(height: 16),
+                        _buildCalcRow('Crop Stage', stage),
+                        const SizedBox(height: 32),
+
+                        Container(
+                          width: double.infinity,
+                          padding: const EdgeInsets.all(24),
+                          decoration: BoxDecoration(
+                            gradient: const LinearGradient(colors: [AppColors.primary, AppColors.secondary], begin: Alignment.topLeft, end: Alignment.bottomRight),
+                            borderRadius: BorderRadius.circular(24),
+                            boxShadow: [BoxShadow(color: AppColors.primary.withValues(alpha: 0.3), blurRadius: 20, offset: const Offset(0, 10))],
+                          ),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              const Text('Estimated Subsidy', style: TextStyle(color: Colors.white70, fontSize: 14, fontWeight: FontWeight.w500)),
+                              const SizedBox(height: 8),
+                              Text('₱${estimatedSubsidy.toStringAsFixed(0)}', style: const TextStyle(color: Colors.white, fontSize: 36, fontWeight: FontWeight.bold, letterSpacing: -1)),
+                            ],
+                          ),
+                        ),
+                        const SizedBox(height: 48),
+                        
+                        Row(
                           children: [
-                            Text('Reported by $farmer', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
-                            Text('ID: $farmerId', style: const TextStyle(color: AppColors.secondaryText, fontSize: 12)),
+                            Expanded(
+                              child: OutlinedButton(
+                                onPressed: () => Navigator.of(context).pop(),
+                                style: OutlinedButton.styleFrom(padding: const EdgeInsets.symmetric(vertical: 16), side: const BorderSide(color: AppColors.danger), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12))),
+                                child: const Text('Reject', style: TextStyle(color: AppColors.danger, fontWeight: FontWeight.bold)),
+                              ),
+                            ),
+                            const SizedBox(width: 16),
+                            Expanded(
+                              child: ElevatedButton(
+                                onPressed: () {
+                                  ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Incident Validated and Subsidy Approved')));
+                                  Navigator.of(context).pop();
+                                },
+                                style: ElevatedButton.styleFrom(backgroundColor: AppColors.primary, padding: const EdgeInsets.symmetric(vertical: 16), elevation: 0, shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12))),
+                                child: const Text('Validate & Approve', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+                              ),
+                            ),
                           ],
                         ),
-                      ),
-                      const Icon(Icons.verified_user, color: AppColors.primary, size: 20),
-                    ],
-                  ),
-                ),
-                const SizedBox(height: 32),
-
-                _buildCalcRow('Date of Incident', dateStr),
-                const SizedBox(height: 16),
-                _buildCalcRow('Barangay', barangay),
-                const SizedBox(height: 16),
-                _buildCalcRow('Affected Area', '${area.toStringAsFixed(1)} ha'),
-                const SizedBox(height: 16),
-                _buildCalcRow('Loss Percentage', '${(lossFactor * 100).toStringAsFixed(0)}%'),
-                const SizedBox(height: 16),
-                _buildCalcRow('Crop Stage', stage),
-                const SizedBox(height: 32),
-
-                Container(
-                  width: double.infinity,
-                  padding: const EdgeInsets.all(24),
-                  decoration: BoxDecoration(
-                    gradient: const LinearGradient(colors: [AppColors.primary, AppColors.secondary], begin: Alignment.topLeft, end: Alignment.bottomRight),
-                    borderRadius: BorderRadius.circular(24),
-                    boxShadow: [BoxShadow(color: AppColors.primary.withValues(alpha: 0.3), blurRadius: 20, offset: const Offset(0, 10))],
-                  ),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      const Text('Estimated Subsidy', style: TextStyle(color: Colors.white70, fontSize: 14, fontWeight: FontWeight.w500)),
-                      const SizedBox(height: 8),
-                      Text('₱${estimatedSubsidy.toStringAsFixed(0)}', style: const TextStyle(color: Colors.white, fontSize: 36, fontWeight: FontWeight.bold, letterSpacing: -1)),
-                    ],
-                  ),
-                ),
-                const SizedBox(height: 48),
-                
-                Row(
-                  children: [
-                    Expanded(
-                      child: OutlinedButton(
-                        onPressed: _closeDrawer,
-                        style: OutlinedButton.styleFrom(padding: const EdgeInsets.symmetric(vertical: 16), side: const BorderSide(color: AppColors.danger), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12))),
-                        child: const Text('Reject', style: TextStyle(color: AppColors.danger, fontWeight: FontWeight.bold)),
-                      ),
+                      ],
                     ),
-                    const SizedBox(width: 16),
-                    Expanded(
-                      child: ElevatedButton(
-                        onPressed: () {
-                          // Update status mock
-                          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Incident Validated and Subsidy Approved')));
-                          _closeDrawer();
-                        },
-                        style: ElevatedButton.styleFrom(backgroundColor: AppColors.primary, padding: const EdgeInsets.symmetric(vertical: 16), elevation: 0, shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12))),
-                        child: const Text('Validate & Approve', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
-                      ),
-                    ),
-                  ],
+                  ),
                 ),
-                const SizedBox(height: 32),
               ],
             ),
           ),
-        ),
-      ],
+        );
+      }
     );
   }
 
